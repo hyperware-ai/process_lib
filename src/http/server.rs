@@ -202,14 +202,14 @@ pub enum HttpServerAction {
     },
     /// When sent, expects a [`crate::LazyLoadBlob`] containing the WebSocket message bytes to send.
     /// Modifies the [`crate::LazyLoadBlob`] by placing into [`HttpServerAction::WebSocketExtPushData`]` with id taken from
-    /// this [`KernelMessage`]` and `kinode_message_type` set to `desired_reply_type`.
+    /// this [`KernelMessage`]` and `hyperware_message_type` set to `desired_reply_type`.
     WebSocketExtPushOutgoing {
         channel_id: u32,
         message_type: WsMessageType,
         desired_reply_type: MessageType,
     },
     /// For communicating with the ext.
-    /// Kinode's http-server sends this to the ext after receiving [`HttpServerAction::WebSocketExtPushOutgoing`].
+    /// Hyperware's http-server sends this to the ext after receiving [`HttpServerAction::WebSocketExtPushOutgoing`].
     /// Upon receiving reply with this type from ext, http-server parses, setting:
     /// * id as given,
     /// * message type as given ([`crate::Request`] or [`crate::Response`]),
@@ -217,7 +217,7 @@ pub enum HttpServerAction {
     /// * [`crate::LazyLoadBlob`] as given.
     WebSocketExtPushData {
         id: u64,
-        kinode_message_type: MessageType,
+        hyperware_message_type: MessageType,
         blob: Vec<u8>,
     },
     /// Sending will close a socket the process controls.
@@ -562,7 +562,7 @@ impl HttpServer {
                 })
                 .unwrap(),
             )
-            .blob(crate::kinode::process::standard::LazyLoadBlob {
+            .blob(crate::hyperware::process::standard::LazyLoadBlob {
                 mime: content_type.clone(),
                 bytes: content.clone(),
             })

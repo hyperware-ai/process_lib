@@ -1,10 +1,10 @@
 [package]
-name = "kinode_process_lib"
+name = "hyperware_process_lib"
 authors = ["Sybil Technologies AG"]
 version = "1.0.1"
 edition = "2021"
-description = "A library for writing Kinode processes in Rust."
-homepage = "https://kinode.org"
+description = "A library for writing Hyperware processes in Rust."
+homepage = "https://hyperware.ai"
 repository = "https://github.com/kinode-dao/process_lib"
 license = "Apache-2.0"
 

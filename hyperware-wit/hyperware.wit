@@ -1,9 +1,4 @@
-//
-// kinode.wit, copied from https://github.com/kinode-dao/kinode-wit
-// https://raw.githubusercontent.com/kinode-dao/kinode-wit/v1.0.0/kinode.wit
-//
-
-package kinode:process@1.0.0;
+package hyperware:process@1.0.0;
 
 interface standard {
 
@@ -49,7 +44,7 @@ interface standard {
         // expects-response is none, direct response to source of parent.
         // also carries forward certain aspects of parent message in kernel,
         // see documentation for formal spec and examples:
-        // https://docs.rs/kinode_process_lib/latest/kinode_process_lib/struct.Request.html
+        // https://docs.rs/hyperware_process_lib/latest/hyperware_process_lib/struct.Request.html
         inherit: bool,
         // if some, request expects a response in the given number of seconds
         expects-response: option<u64>,

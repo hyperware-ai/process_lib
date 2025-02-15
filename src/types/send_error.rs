@@ -62,13 +62,13 @@ impl SendErrorKind {
 }
 
 pub fn _wit_send_error_to_send_error(
-    send_err: crate::kinode::process::standard::SendError,
+    send_err: crate::hyperware::process::standard::SendError,
     context: Option<Vec<u8>>,
 ) -> SendError {
     SendError {
         kind: match send_err.kind {
-            crate::kinode::process::standard::SendErrorKind::Offline => SendErrorKind::Offline,
-            crate::kinode::process::standard::SendErrorKind::Timeout => SendErrorKind::Timeout,
+            crate::hyperware::process::standard::SendErrorKind::Offline => SendErrorKind::Offline,
+            crate::hyperware::process::standard::SendErrorKind::Timeout => SendErrorKind::Timeout,
         },
         target: send_err.target.clone(),
         message: _wit_message_to_message(send_err.target, send_err.message),

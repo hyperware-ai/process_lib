@@ -105,17 +105,17 @@ impl Message {
 
 pub fn _wit_message_to_message(
     source: Address,
-    message: crate::kinode::process::standard::Message,
+    message: crate::hyperware::process::standard::Message,
 ) -> Message {
     match message {
-        crate::kinode::process::standard::Message::Request(req) => Message::Request {
+        crate::hyperware::process::standard::Message::Request(req) => Message::Request {
             source,
             expects_response: req.expects_response,
             body: req.body,
             metadata: req.metadata,
             capabilities: req.capabilities,
         },
-        crate::kinode::process::standard::Message::Response((resp, context)) => Message::Response {
+        crate::hyperware::process::standard::Message::Response((resp, context)) => Message::Response {
             source,
             body: resp.body,
             metadata: resp.metadata,
