@@ -1,6 +1,6 @@
 use crate::Request;
 
-/// Add a new icon and/or widget to the Kinode homepage. Note that the process calling this
+/// Add a new icon and/or widget to the Hyperware homepage. Note that the process calling this
 /// function must have the `homepage:homepage:sys` messaging [`crate::Capability`].
 ///
 /// This should be called upon process startup to ensure that the process is added to the homepage.
@@ -29,7 +29,7 @@ pub fn add_to_homepage(label: &str, icon: Option<&str>, path: Option<&str>, widg
         .unwrap();
 }
 
-/// Remove the caller process from the Kinode homepage. Note that the process calling this function
+/// Remove the caller process from the Hyperware homepage. Note that the process calling this function
 /// must have the `homepage:homepage:sys` messaging [`crate::Capability`].
 ///
 /// This usually isn't necessary as processes are not persisted on homepage between boots.

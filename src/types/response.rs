@@ -166,7 +166,7 @@ impl Response {
     pub fn send(self) -> Result<(), BuildError> {
         if let Some(body) = self.body {
             crate::send_response(
-                &crate::kinode::process::standard::Response {
+                &crate::hyperware::process::standard::Response {
                     inherit: self.inherit,
                     body,
                     metadata: self.metadata,

@@ -273,7 +273,7 @@ impl Request {
         };
         crate::send_request(
             &target,
-            &crate::kinode::process::standard::Request {
+            &crate::hyperware::process::standard::Request {
                 inherit: self.inherit,
                 expects_response: self.timeout,
                 body,
@@ -299,7 +299,7 @@ impl Request {
         };
         match crate::send_and_await_response(
             &target,
-            &crate::kinode::process::standard::Request {
+            &crate::hyperware::process::standard::Request {
                 inherit: self.inherit,
                 expects_response: Some(timeout),
                 body,

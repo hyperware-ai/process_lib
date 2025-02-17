@@ -13,7 +13,7 @@ macro_rules! script {
         struct Component;
         impl Guest for Component {
             fn init(our: String) {
-                use kinode_process_lib::{await_message, println, Address, Message, Response};
+                use hyperware_process_lib::{await_message, println, Address, Message, Response};
                 let our: Address = our.parse().unwrap();
                 let Message::Request {
                     body,
@@ -54,13 +54,13 @@ macro_rules! script {
 ///     world: "process-v0",
 /// });
 ///
-/// kinode_process_lib::widget!("My widget", create_widget);
+/// hyperware_process_lib::widget!("My widget", create_widget);
 ///
 /// fn create_widget() -> String {
 ///     return r#"<html>
 ///         <head>
 ///             <meta name="viewport" content="width=device-width, initial-scale=1">
-///             <link rel="stylesheet" href="/kinode.css">
+///             <link rel="stylesheet" href="/hyperware.css">
 ///         </head>
 ///         <body>
 ///             <h1>Hello World!</h1>
@@ -73,7 +73,7 @@ macro_rules! widget {
         struct Component;
         impl Guest for Component {
             fn init(_our: String) {
-                use kinode_process_lib::Request;
+                use hyperware_process_lib::Request;
                 Request::to(("our", "homepage", "homepage", "sys"))
                     .body(
                         serde_json::json!({

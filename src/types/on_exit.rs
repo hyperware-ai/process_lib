@@ -10,10 +10,10 @@ pub enum OnExit {
 impl OnExit {
     /// Call the kernel to get the current set `OnExit` behavior.
     pub fn get() -> Self {
-        match crate::kinode::process::standard::get_on_exit() {
-            crate::kinode::process::standard::OnExit::None => OnExit::None,
-            crate::kinode::process::standard::OnExit::Restart => OnExit::Restart,
-            crate::kinode::process::standard::OnExit::Requests(reqs) => {
+        match crate::hyperware::process::standard::get_on_exit() {
+            crate::hyperware::process::standard::OnExit::None => OnExit::None,
+            crate::hyperware::process::standard::OnExit::Restart => OnExit::Restart,
+            crate::hyperware::process::standard::OnExit::Requests(reqs) => {
                 let mut requests: Vec<Request> = Vec::with_capacity(reqs.len());
                 for req in reqs {
                     requests.push(Request {
@@ -74,27 +74,27 @@ impl OnExit {
     /// Will return a [`BuildError`] if any requests within the [`OnExit::Requests`] behavior are
     /// not valid (by not having a `body` and/or `target` set).
     pub fn set(self) -> Result<(), BuildError> {
-        crate::kinode::process::standard::set_on_exit(&self._to_standard()?);
+        crate::hyperware::process::standard::set_on_exit(&self._to_standard()?);
         Ok(())
     }
     /// Convert this `OnExit` to the kernel's `OnExit` type.
     ///
     /// Will return a [`BuildError`] if any requests within the [`OnExit::Requests`] behavior are
     /// not valid (by not having a `body` and/or `target` set).
-    pub fn _to_standard(self) -> Result<crate::kinode::process::standard::OnExit, BuildError> {
+    pub fn _to_standard(self) -> Result<crate::hyperware::process::standard::OnExit, BuildError> {
         match self {
-            OnExit::None => Ok(crate::kinode::process::standard::OnExit::None),
-            OnExit::Restart => Ok(crate::kinode::process::standard::OnExit::Restart),
+            OnExit::None => Ok(crate::hyperware::process::standard::OnExit::None),
+            OnExit::Restart => Ok(crate::hyperware::process::standard::OnExit::Restart),
             OnExit::Requests(reqs) => {
                 let mut kernel_reqs: Vec<(
                     Address,
-                    crate::kinode::process::standard::Request,
+                    crate::hyperware::process::standard::Request,
                     Option<LazyLoadBlob>,
                 )> = Vec::with_capacity(reqs.len());
                 for req in reqs {
                     kernel_reqs.push((
                         req.target.ok_or(BuildError::NoTarget)?,
-                        crate::kinode::process::standard::Request {
+                        crate::hyperware::process::standard::Request {
                             inherit: req.inherit,
                             expects_response: None,
                             body: req.body.ok_or(BuildError::NoBody)?,
@@ -104,7 +104,7 @@ impl OnExit {
                         req.blob,
                     ));
                 }
-                Ok(crate::kinode::process::standard::OnExit::Requests(
+                Ok(crate::hyperware::process::standard::OnExit::Requests(
                     kernel_reqs,
                 ))
             }

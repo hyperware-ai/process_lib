@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 //
 
 /// The data structure used by `net:distro:sys` and the rest of the runtime to
-/// represent node identities in the KNS (Kinode Name System).
+/// represent node identities in the KNS (Hyperware Name System).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Identity {
     pub name: NodeId,

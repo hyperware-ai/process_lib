@@ -4,7 +4,7 @@ pub use crate::LazyLoadBlob;
 /// A `LazyLoadBlob` is a piece of data that is only optionally loaded into a process
 /// (i.e. with `get_blob()`). `LazyLoadBlob` is useful for passing large data in a chain
 /// of [`crate::Request`]s or [`crate::Response`]s where intermediate processes in the
-/// chain don't need to access the data. In this way, Kinode saves time and compute
+/// chain don't need to access the data. In this way, Hyperware saves time and compute
 /// since the `LazyLoadBlob` is not sent back and forth across the Wasm boundary needlessly.
 impl LazyLoadBlob {
     /// Create a new `LazyLoadBlob`. Takes a mime type and a byte vector.

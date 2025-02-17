@@ -1,4 +1,4 @@
-use crate::kinode::process::standard as wit;
+use crate::hyperware::process::standard as wit;
 use crate::{Address, ProcessId};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -7,7 +7,7 @@ use std::hash::{Hash, Hasher};
 //
 // process-facing kernel types, used for process
 // management and message-passing
-// matches types in kinode.wit
+// matches types in hyperware.wit
 //
 
 pub type Context = Vec<u8>;
@@ -265,7 +265,7 @@ impl StateError {
 // package types
 //
 
-/// Represents the metadata associated with a kinode package, which is an ERC721 compatible token.
+/// Represents the metadata associated with a hyperware package, which is an ERC721 compatible token.
 /// This is deserialized from the `metadata.json` file in a package.
 /// Fields:
 /// - `name`: An optional field representing the display name of the package. This does not have to be unique, and is not used for identification purposes.
@@ -284,7 +284,7 @@ pub struct Erc721Metadata {
     pub properties: Erc721Properties,
 }
 
-/// Represents critical fields of a kinode package in an ERC721 compatible format.
+/// Represents critical fields of a hyperware package in an ERC721 compatible format.
 /// This follows the [ERC1155](https://github.com/ethereum/ercs/blob/master/ERCS/erc-1155.md#erc-1155-metadata-uri-json-schema) metadata standard.
 ///
 /// Fields:
