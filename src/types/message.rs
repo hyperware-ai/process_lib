@@ -115,12 +115,14 @@ pub fn _wit_message_to_message(
             metadata: req.metadata,
             capabilities: req.capabilities,
         },
-        crate::hyperware::process::standard::Message::Response((resp, context)) => Message::Response {
-            source,
-            body: resp.body,
-            metadata: resp.metadata,
-            context,
-            capabilities: resp.capabilities,
-        },
+        crate::hyperware::process::standard::Message::Response((resp, context)) => {
+            Message::Response {
+                source,
+                body: resp.body,
+                metadata: resp.metadata,
+                context,
+                capabilities: resp.capabilities,
+            }
+        }
     }
 }
