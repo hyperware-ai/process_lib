@@ -1,5 +1,5 @@
 use crate::eth::{EthError, Provider};
-use crate::kimap::contract::getCall;
+use crate::hypermap::contract::getCall;
 use crate::net;
 use alloy::rpc::types::request::{TransactionInput, TransactionRequest};
 use alloy::{hex, primitives::keccak256};
@@ -11,17 +11,17 @@ use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
 
-/// kimap deployment address on base
-pub const KIMAP_ADDRESS: &'static str = "0x000000000033e5CCbC52Ec7BDa87dB768f9aA93F";
+/// hypermap deployment address on base
+pub const HYPERMAP_ADDRESS: &'static str = "0x000000000033e5CCbC52Ec7BDa87dB768f9aA93F";
 /// base chain id
-pub const KIMAP_CHAIN_ID: u64 = 8453;
-/// first block (minus one) of kimap deployment on base
-pub const KIMAP_FIRST_BLOCK: u64 = 25_346_377;
-/// the root hash of kimap, empty bytes32
-pub const KIMAP_ROOT_HASH: &'static str =
+pub const HYPERMAP_CHAIN_ID: u64 = 8453;
+/// first block (minus one) of hypermap deployment on base
+pub const HYPERMAP_FIRST_BLOCK: u64 = 25_346_377;
+/// the root hash of hypermap, empty bytes32
+pub const HYPERMAP_ROOT_HASH: &'static str =
     "0x0000000000000000000000000000000000000000000000000000000000000000";
 
-/// Sol structures for Kimap requests
+/// Sol structures for Hypermap requests
 pub mod contract {
     use alloy_sol_macro::sol;
 
@@ -229,16 +229,16 @@ pub mod contract {
     }
 }
 
-/// A mint log from the kimap, converted to a 'resolved' format using
-/// namespace data saved in the kns-indexer.
+/// A mint log from the hypermap, converted to a 'resolved' format using
+/// namespace data saved in the hns-indexer.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Mint {
     pub name: String,
     pub parent_path: String,
 }
 
-/// A note log from the kimap, converted to a 'resolved' format using
-/// namespace data saved in the kns-indexer
+/// A note log from the hypermap, converted to a 'resolved' format using
+/// namespace data saved in the hns-indexer
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Note {
     pub note: String,
@@ -246,8 +246,8 @@ pub struct Note {
     pub data: Bytes,
 }
 
-/// A fact log from the kimap, converted to a 'resolved' format using
-/// namespace data saved in the kns-indexer
+/// A fact log from the hypermap, converted to a 'resolved' format using
+/// namespace data saved in the hns-indexer
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Fact {
     pub fact: String,
@@ -255,7 +255,7 @@ pub struct Fact {
     pub data: Bytes,
 }
 
-/// Errors that can occur when decoding a log from the kimap using
+/// Errors that can occur when decoding a log from the hypermap using
 /// [`decode_mint_log()`] or [`decode_note_log()`].
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum DecodeLogError {
@@ -265,7 +265,7 @@ pub enum DecodeLogError {
     InvalidName(String),
     /// An error occurred while decoding the log.
     DecodeError(String),
-    /// The parent name could not be resolved with `kns-indexer`.
+    /// The parent name could not be resolved with `hns-indexer`.
     UnresolvedParent(String),
 }
 
@@ -284,10 +284,10 @@ impl fmt::Display for DecodeLogError {
 
 impl Error for DecodeLogError {}
 
-/// Canonical function to determine if a kimap entry is valid. This should
-/// be used whenever reading a new kimap entry from a mints query, because
+/// Canonical function to determine if a hypermap entry is valid. This should
+/// be used whenever reading a new hypermap entry from a mints query, because
 /// while most frontends will enforce these rules, it is possible to post
-/// invalid names to the kimap contract.
+/// invalid names to the hypermap contract.
 ///
 /// This checks a **single name**, not the full path-name. A full path-name
 /// is comprised of valid names separated by `.`
@@ -332,7 +332,7 @@ pub fn valid_fact(fact: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
-/// Produce a namehash from a kimap name.
+/// Produce a namehash from a hypermap name.
 pub fn namehash(name: &str) -> String {
     let mut node = B256::default();
 
@@ -346,7 +346,7 @@ pub fn namehash(name: &str) -> String {
     format!("0x{}", hex::encode(node))
 }
 
-/// Decode a mint log from the kimap into a 'resolved' format.
+/// Decode a mint log from the hypermap into a 'resolved' format.
 ///
 /// Uses [`valid_name()`] to check if the name is valid.
 pub fn decode_mint_log(log: &crate::eth::Log) -> Result<Mint, DecodeLogError> {
@@ -365,7 +365,7 @@ pub fn decode_mint_log(log: &crate::eth::Log) -> Result<Mint, DecodeLogError> {
     }
 }
 
-/// Decode a note log from the kimap into a 'resolved' format.
+/// Decode a note log from the hypermap into a 'resolved' format.
 ///
 /// Uses [`valid_name()`] to check if the name is valid.
 pub fn decode_note_log(log: &crate::eth::Log) -> Result<Note, DecodeLogError> {
@@ -408,14 +408,14 @@ pub fn decode_fact_log(log: &crate::eth::Log) -> Result<Fact, DecodeLogError> {
     }
 }
 
-/// Given a [`crate::eth::Log`] (which must be a log from kimap), resolve the parent name
+/// Given a [`crate::eth::Log`] (which must be a log from hypermap), resolve the parent name
 /// of the new entry or note.
 pub fn resolve_parent(log: &crate::eth::Log, timeout: Option<u64>) -> Option<String> {
     let parent_hash = log.topics()[1].to_string();
     net::get_name(&parent_hash, log.block_number, timeout)
 }
 
-/// Given a [`crate::eth::Log`] (which must be a log from kimap), resolve the full name
+/// Given a [`crate::eth::Log`] (which must be a log from hypermap), resolve the full name
 /// of the new entry or note.
 ///
 /// Uses [`valid_name()`] to check if the name is valid.
@@ -448,38 +448,38 @@ pub fn resolve_full_name(log: &crate::eth::Log, timeout: Option<u64>) -> Option<
     Some(format!("{name}.{parent_name}"))
 }
 
-/// Helper struct for reading from the kimap.
+/// Helper struct for reading from the hypermap.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Kimap {
+pub struct Hypermap {
     pub provider: Provider,
     address: Address,
 }
 
-impl Kimap {
-    /// Creates a new Kimap instance with a specified address.
+impl Hypermap {
+    /// Creates a new Hypermap instance with a specified address.
     ///
     /// # Arguments
     /// * `provider` - A reference to the Provider.
-    /// * `address` - The address of the Kimap contract.
+    /// * `address` - The address of the Hypermap contract.
     pub fn new(provider: Provider, address: Address) -> Self {
         Self { provider, address }
     }
 
-    /// Creates a new Kimap instance with the default address and chain ID.
+    /// Creates a new Hypermap instance with the default address and chain ID.
     pub fn default(timeout: u64) -> Self {
-        let provider = Provider::new(KIMAP_CHAIN_ID, timeout);
-        Self::new(provider, Address::from_str(KIMAP_ADDRESS).unwrap())
+        let provider = Provider::new(HYPERMAP_CHAIN_ID, timeout);
+        Self::new(provider, Address::from_str(HYPERMAP_ADDRESS).unwrap())
     }
 
-    /// Returns the in-use Kimap contract address.
+    /// Returns the in-use Hypermap contract address.
     pub fn address(&self) -> &Address {
         &self.address
     }
 
-    /// Gets an entry from the Kimap by its string-formatted name.
+    /// Gets an entry from the Hypermap by its string-formatted name.
     ///
     /// # Parameters
-    /// - `path`: The name-path to get from the Kimap.
+    /// - `path`: The name-path to get from the Hypermap.
     /// # Returns
     /// A `Result<(Address, Address, Option<Bytes>), EthError>` representing the TBA, owner,
     /// and value if the entry exists and is a note.
@@ -508,10 +508,10 @@ impl Kimap {
         Ok((res.tba, res.owner, note_data))
     }
 
-    /// Gets an entry from the Kimap by its hash.
+    /// Gets an entry from the Hypermap by its hash.
     ///
     /// # Parameters
-    /// - `entryhash`: The entry to get from the Kimap.
+    /// - `entryhash`: The entry to get from the Hypermap.
     /// # Returns
     /// A `Result<(Address, Address, Option<Bytes>), EthError>` representing the TBA, owner,
     /// and value if the entry exists and is a note.
@@ -587,7 +587,7 @@ impl Kimap {
     ///
     /// Example:
     /// ```rust
-    /// let filter = kimap.notes_filter(&["~note1", "~note2"]);
+    /// let filter = hypermap.notes_filter(&["~note1", "~note2"]);
     /// ```
     pub fn notes_filter(&self, notes: &[&str]) -> crate::eth::Filter {
         self.note_filter().topic3(
@@ -603,7 +603,7 @@ impl Kimap {
     ///
     /// Example:
     /// ```rust
-    /// let filter = kimap.facts_filter(&["!fact1", "!fact2"]);
+    /// let filter = hypermap.facts_filter(&["!fact1", "!fact2"]);
     /// ```
     pub fn facts_filter(&self, facts: &[&str]) -> crate::eth::Filter {
         self.fact_filter().topic3(

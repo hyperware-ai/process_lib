@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 //
 
 /// The data structure used by `net:distro:sys` and the rest of the runtime to
-/// represent node identities in the KNS (Hyperware Name System).
+/// represent node identities in the HNS (Hyperware Name System).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Identity {
     pub name: NodeId,
@@ -15,7 +15,7 @@ pub struct Identity {
     pub routing: NodeRouting,
 }
 
-/// Routing information for a node identity. Produced from kimap data entries
+/// Routing information for a node identity. Produced from hypermap data entries
 /// and used to create net connections between nodes.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum NodeRouting {
@@ -66,9 +66,9 @@ pub enum NetAction {
     /// This cannot be sent locally.
     ConnectionRequest(NodeId),
     /// Can only receive from trusted source: requires net root [`crate::Capability`].
-    KnsUpdate(KnsUpdate),
+    HnsUpdate(HnsUpdate),
     /// Can only receive from trusted source: requires net root [`crate::Capability`].
-    KnsBatchUpdate(Vec<KnsUpdate>),
+    HnsBatchUpdate(Vec<HnsUpdate>),
     /// Get a list of peers with whom we have an open connection.
     GetPeers,
     /// Get the [`Identity`] struct for a single peer.
@@ -108,18 +108,18 @@ pub enum NetResponse {
     Verified(bool),
 }
 
-/// Request performed to `kns-indexer:kns-indexer:sys`, a userspace process
+/// Request performed to `hns-indexer:hns-indexer:sys`, a userspace process
 /// installed by default.
 ///
 /// Other requests exist but are only used internally.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum IndexerRequests {
     /// Get the name associated with a namehash. This is used to resolve namehashes
-    /// from events in the `kimap` contract.
+    /// from events in the `hypermap` contract.
     NamehashToName(NamehashToNameRequest),
 }
 
-/// Request to resolve a namehash to a name. Hash is a namehash from `kimap`.
+/// Request to resolve a namehash to a name. Hash is a namehash from `hypermap`.
 /// Block is optional, and if provided will return the name at that block number.
 /// If not provided, the latest knowledge will be returned.
 ///
@@ -131,17 +131,17 @@ pub struct NamehashToNameRequest {
     pub block: u64,
 }
 
-/// Response from `kns-indexer:kns-indexer:sys`.
+/// Response from `hns-indexer:hns-indexer:sys`.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum IndexerResponses {
     /// Response to [`IndexerRequests::NamehashToName`].
     Name(Option<String>),
 }
 
-/// Update type used to convert kimap entries into node identities.
+/// Update type used to convert hypermap entries into node identities.
 /// Only currently used in userspace for `eth:distro:sys` configuration.
 #[derive(Clone, Debug, Serialize, Deserialize, Hash, Eq, PartialEq)]
-pub struct KnsUpdate {
+pub struct HnsUpdate {
     pub name: String,
     pub public_key: String,
     pub ips: Vec<String>,
@@ -149,7 +149,7 @@ pub struct KnsUpdate {
     pub routers: Vec<String>,
 }
 
-impl KnsUpdate {
+impl HnsUpdate {
     pub fn get_protocol_port(&self, protocol: &str) -> u16 {
         self.ports.get(protocol).cloned().unwrap_or(0)
     }
@@ -213,7 +213,7 @@ where
         })
 }
 
-/// Get a [`crate::kimap::Kimap`] entry name from its namehash.
+/// Get a [`crate::hypermap::Hypermap`] entry name from its namehash.
 ///
 /// Default timeout is 30 seconds. Note that the responsiveness of the indexer
 /// will depend on the block option used. The indexer will wait until it has
@@ -222,7 +222,7 @@ pub fn get_name<T>(namehash: T, block: Option<u64>, timeout: Option<u64>) -> Opt
 where
     T: Into<String>,
 {
-    let res = Request::to(("our", "kns-indexer", "kns-indexer", "sys"))
+    let res = Request::to(("our", "hns-indexer", "hns-indexer", "sys"))
         .body(
             serde_json::to_vec(&IndexerRequests::NamehashToName(NamehashToNameRequest {
                 hash: namehash.into(),

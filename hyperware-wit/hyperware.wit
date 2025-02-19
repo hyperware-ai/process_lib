@@ -9,7 +9,7 @@ interface standard {
     /// JSON is passed over Wasm boundary as a string.
     type json = string;
 
-    /// In types passed from kernel, node-id will be a valid Kimap entry.
+    /// In types passed from kernel, node-id will be a valid Hypermap entry.
     type node-id = string;
 
     /// Context, like a message body, is a protocol-defined serialized byte

@@ -188,7 +188,7 @@ pub enum EthConfigAction {
 pub enum EthConfigResponse {
     Ok,
     /// Response from a GetProviders request.
-    /// Note the [`crate::net::KnsUpdate`] will only have the correct `name` field.
+    /// Note the [`crate::net::HnsUpdate`] will only have the correct `name` field.
     /// The rest of the Update is not saved in this module.
     Providers(SavedConfigs),
     /// Response from a GetAccessSettings request.
@@ -240,7 +240,7 @@ impl From<Authorization> for AlloyAuthorization {
 #[derive(Clone, Debug, Serialize, Hash, Eq, PartialEq)]
 pub enum NodeOrRpcUrl {
     Node {
-        kns_update: crate::net::KnsUpdate,
+        hns_update: crate::net::HnsUpdate,
         use_as_provider: bool, // false for just-routers inside saved config
     },
     RpcUrl {
@@ -252,7 +252,7 @@ pub enum NodeOrRpcUrl {
 impl std::cmp::PartialEq<str> for NodeOrRpcUrl {
     fn eq(&self, other: &str) -> bool {
         match self {
-            NodeOrRpcUrl::Node { kns_update, .. } => kns_update.name == other,
+            NodeOrRpcUrl::Node { hns_update, .. } => hns_update.name == other,
             NodeOrRpcUrl::RpcUrl { url, .. } => url == other,
         }
     }
@@ -276,7 +276,7 @@ impl<'de> Deserialize<'de> for NodeOrRpcUrl {
         #[derive(Deserialize)]
         enum Helper {
             Node {
-                kns_update: crate::net::KnsUpdate,
+                hns_update: crate::net::HnsUpdate,
                 use_as_provider: bool,
             },
             RpcUrl(RpcUrlHelper),
@@ -286,10 +286,10 @@ impl<'de> Deserialize<'de> for NodeOrRpcUrl {
 
         Ok(match helper {
             Helper::Node {
-                kns_update,
+                hns_update,
                 use_as_provider,
             } => NodeOrRpcUrl::Node {
-                kns_update,
+                hns_update,
                 use_as_provider,
             },
             Helper::RpcUrl(url_helper) => match url_helper {
@@ -675,14 +675,14 @@ impl Provider {
         self.send_request_and_parse_response::<Bytes>(action)
     }
 
-    /// Returns a Kimap instance with the default address using this provider.
-    pub fn kimap(&self) -> crate::kimap::Kimap {
-        crate::kimap::Kimap::default(self.request_timeout)
+    /// Returns a Hypermap instance with the default address using this provider.
+    pub fn hypermap(&self) -> crate::hypermap::Hypermap {
+        crate::hypermap::Hypermap::default(self.request_timeout)
     }
 
-    /// Returns a Kimap instance with a custom address using this provider.
-    pub fn kimap_with_address(self, address: Address) -> crate::kimap::Kimap {
-        crate::kimap::Kimap::new(self, address)
+    /// Returns a Hypermap instance with a custom address using this provider.
+    pub fn hypermap_with_address(self, address: Address) -> crate::hypermap::Hypermap {
+        crate::hypermap::Hypermap::new(self, address)
     }
 
     /// Sends a raw transaction to the network.

@@ -597,7 +597,7 @@ impl HttpServer {
     /// Instead of binding at just a path, this function tells the HTTP server to
     /// generate a *subdomain* with our package ID (with non-ascii-alphanumeric
     /// characters converted to `-`, although will not be needed if package ID is
-    /// a genuine kimap entry) and bind at that subdomain.
+    /// a genuine hypermap entry) and bind at that subdomain.
     pub fn secure_bind_http_path<T>(&mut self, path: T) -> Result<(), HttpServerError>
     where
         T: Into<String>,
@@ -639,7 +639,7 @@ impl HttpServer {
     /// Instead of binding at just a path, this function tells the HTTP server to
     /// generate a *subdomain* with our package ID (with non-ascii-alphanumeric
     /// characters converted to `-`, although will not be needed if package ID is
-    /// a genuine kimap entry) and bind at that subdomain.
+    /// a genuine hypermap entry) and bind at that subdomain.
     pub fn secure_bind_ws_path<T>(&mut self, path: T) -> Result<(), HttpServerError>
     where
         T: Into<String>,
