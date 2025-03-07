@@ -12,7 +12,7 @@ use std::fmt;
 use std::str::FromStr;
 
 /// hypermap deployment address on base
-pub const HYPERMAP_ADDRESS: &'static str = "0x000000000033e5CCbC52Ec7BDa87dB768f9aA93F";
+pub const HYPERMAP_ADDRESS: &'static str = "0x000000000044C6B8Cb4d8f0F889a3E47664EAeda";
 /// base chain id
 pub const HYPERMAP_CHAIN_ID: u64 = 8453;
 /// first block (minus one) of hypermap deployment on base
