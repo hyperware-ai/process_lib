@@ -35,12 +35,12 @@ pub mod homepage;
 /// Your process must have the [`Capability`] to message and receive messages from
 /// `http-server:distro:sys` and/or `http-client:distro:sys` to use this module.
 pub mod http;
+/// Interact with hypermap, the onchain namespace
+pub mod hypermap;
 /// The types that the kernel itself uses -- warning -- these will
 /// be incompatible with WIT types in some cases, leading to annoying errors.
 /// Use only to interact with the kernel or runtime in certain ways.
 pub mod kernel_types;
-/// Interact with hypermap, the onchain namespace
-pub mod hypermap;
 /// Interact with the key_value module
 ///
 /// Your process must have the [`Capability`] to message and receive messages from
