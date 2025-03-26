@@ -24,8 +24,12 @@ wit_bindgen::generate!({
 
 /// Interact with the eth provider module.
 pub mod eth;
-/// Interact with the system homepage.
-///
+/// High-level Ethereum utilities for common operations.
+pub mod eth_utils;
+/// Ethereum wallet management with transaction preparation and submission.
+pub mod wallet;
+/// Low-level Ethereum signing operations and key management.
+pub mod signer;
 /// Your process must have the [`Capability`] to message
 /// `homepage:homepage:sys` to use this module.
 pub mod homepage;
@@ -35,12 +39,14 @@ pub mod homepage;
 /// Your process must have the [`Capability`] to message and receive messages from
 /// `http-server:distro:sys` and/or `http-client:distro:sys` to use this module.
 pub mod http;
-/// Interact with hypermap, the onchain namespace
-pub mod hypermap;
 /// The types that the kernel itself uses -- warning -- these will
 /// be incompatible with WIT types in some cases, leading to annoying errors.
 /// Use only to interact with the kernel or runtime in certain ways.
 pub mod kernel_types;
+/// Interact with hypermap, the onchain namespace
+pub mod hypermap;
+/// Tools for exploring and working with Token-Bound Accounts (TBAs) in Hypermap
+//pub mod tba_explorer;
 /// Interact with the key_value module
 ///
 /// Your process must have the [`Capability`] to message and receive messages from
