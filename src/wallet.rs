@@ -1,7 +1,7 @@
 //! Ethereum wallet functionality for Hyperware.
 //!
 //! This module provides higher-level wallet functionality, building on top of
-//! the cryptographic operations in the signer module. It handles transaction 
+//! the cryptographic operations in the signer module. It handles transaction
 //! construction, name resolution, and account management.
 //!
 //! wallet module:
@@ -10,37 +10,28 @@
 //! 3. Manages account state and balances
 //! 4. Offers a simpler interface for common ETH operations (more to do here)
 
-use crate::eth::{
-    Provider, 
-    EthError
-};
-use crate::signer::{
-    Signer, 
-    LocalSigner, 
-    TransactionData, 
-    SignerError, 
-    EncryptedSignerData
-};
+use crate::eth::{EthError, Provider};
 use crate::hypermap;
+use crate::signer::{EncryptedSignerData, LocalSigner, Signer, SignerError, TransactionData};
 
-use thiserror::Error;
 use alloy_primitives::{Address as EthAddress, TxHash, U256};
 use std::str::FromStr;
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum WalletError {
     #[error("signing error: {0}")]
     SignerError(#[from] SignerError),
-    
+
     #[error("ethereum error: {0}")]
     EthError(#[from] EthError),
-    
+
     #[error("name resolution error: {0}")]
     NameResolutionError(String),
-    
+
     #[error("invalid amount: {0}")]
     InvalidAmount(String),
-    
+
     #[error("transaction error: {0}")]
     TransactionError(String),
 }
@@ -50,7 +41,7 @@ pub enum WalletError {
 pub enum KeyStorage {
     /// An unencrypted wallet with a signer
     Decrypted(LocalSigner),
-    
+
     /// An encrypted wallet - contains all the necessary data
     Encrypted(EncryptedSignerData),
 }
@@ -63,7 +54,7 @@ impl KeyStorage {
             KeyStorage::Decrypted(_) => None,
         }
     }
-    
+
     /// Get the address associated with this wallet
     pub fn get_address(&self) -> String {
         match self {
@@ -71,7 +62,7 @@ impl KeyStorage {
             KeyStorage::Encrypted(data) => data.address.clone(),
         }
     }
-    
+
     /// Get the chain ID associated with this wallet
     pub fn get_chain_id(&self) -> u64 {
         match self {
@@ -97,37 +88,44 @@ impl EthAmount {
             wei_value: U256::from(wei),
         }
     }
-    
+
     /// Create from a string like "0.1 ETH" or "10 wei"
     pub fn from_string(amount_str: &str) -> Result<Self, WalletError> {
         let parts: Vec<&str> = amount_str.trim().split_whitespace().collect();
-        
+
         if parts.is_empty() {
             return Err(WalletError::InvalidAmount(
-                "Empty amount string".to_string()
+                "Empty amount string".to_string(),
             ));
         }
-        
+
         let value_str = parts[0];
-        let unit = parts.get(1).map(|s| s.to_lowercase()).unwrap_or_else(|| "eth".to_string());
-        
-        let value = value_str.parse::<f64>()
-            .map_err(|_| WalletError::InvalidAmount(format!("Invalid numeric value: {}", value_str)))?;
-            
+        let unit = parts
+            .get(1)
+            .map(|s| s.to_lowercase())
+            .unwrap_or_else(|| "eth".to_string());
+
+        let value = value_str.parse::<f64>().map_err(|_| {
+            WalletError::InvalidAmount(format!("Invalid numeric value: {}", value_str))
+        })?;
+
         match unit.as_str() {
             "eth" => Ok(Self::from_eth(value)),
             "wei" => Ok(Self {
                 wei_value: U256::from(value as u128),
             }),
-            _ => Err(WalletError::InvalidAmount(format!("Unknown unit: {}", unit))),
+            _ => Err(WalletError::InvalidAmount(format!(
+                "Unknown unit: {}",
+                unit
+            ))),
         }
     }
-    
+
     /// Get the value in wei
     pub fn as_wei(&self) -> U256 {
         self.wei_value
     }
-    
+
     /// Get a human-readable string representation
     pub fn to_string(&self) -> String {
         // For values over 0.0001 ETH, show in ETH, otherwise in wei
@@ -152,32 +150,30 @@ pub struct TxReceipt {
 }
 
 // The checks here aren't solid, but it works for now. Will also expand with full hypermap support
-/// Resolve a .hypr name to an Ethereum address using Hypermap. 
+/// Resolve a .hypr name to an Ethereum address using Hypermap.
 pub fn resolve_name(name: &str, _chain_id: u64) -> Result<EthAddress, WalletError> {
     // If it's already an address, just parse it
     if name.starts_with("0x") && name.len() == 42 {
-        return EthAddress::from_str(name)
-            .map_err(|_| WalletError::NameResolutionError(format!("Invalid address format: {}", name)));
+        return EthAddress::from_str(name).map_err(|_| {
+            WalletError::NameResolutionError(format!("Invalid address format: {}", name))
+        });
     }
-    
+
     // Format the name properly if it doesn't contain dots
     let formatted_name = if !name.contains('.') {
         format!("{}.hypr", name)
     } else {
         name.to_string()
     };
-    
+
     // Use hypermap resolution
     let hypermap = hypermap::Hypermap::default(60);
     match hypermap.get(&formatted_name) {
-        Ok((_tba, owner, _)) => {
-            Ok(owner)
-        },
-        Err(e) => {
-            Err(WalletError::NameResolutionError(
-                format!("Failed to resolve name '{}': {}", name, e)
-            ))
-        }
+        Ok((_tba, owner, _)) => Ok(owner),
+        Err(e) => Err(WalletError::NameResolutionError(format!(
+            "Failed to resolve name '{}': {}",
+            name, e
+        ))),
     }
 }
 
@@ -192,15 +188,16 @@ pub fn send_eth<S: Signer>(
     let chain_id = signer.chain_id();
     // temp
     let is_test_network = chain_id == 31337 || chain_id == 1337;
-    
+
     // Resolve the name to an address
     let to_address = resolve_name(to, chain_id)?;
-    
+
     // Get the current nonce for the signer's address
     let from_address = signer.address();
-    let nonce = provider.get_transaction_count(from_address, None)?
+    let nonce = provider
+        .get_transaction_count(from_address, None)?
         .to::<u64>();
-    
+
     // Get gas pricing based on network
     let (gas_price, priority_fee) = if is_test_network {
         // For test networks like Anvil, use a fixed gas price that's known to work
@@ -208,19 +205,18 @@ pub fn send_eth<S: Signer>(
         (2_000_000_000, 100_000_000) // 2 gwei, 0.1 gwei priority fee
     } else {
         // For real networks, get current gas price
-        let base_fee = provider.get_gas_price()?
-            .to::<u128>();
-        
+        let base_fee = provider.get_gas_price()?.to::<u128>();
+
         // Increase by 20% to ensure transaction goes through
         let adjusted_fee = (base_fee * 120) / 100;
-        
+
         // Priority fee at 10% of gas price
         (adjusted_fee, adjusted_fee / 10)
     };
-    
+
     // Standard gas limit for ETH transfer
     let gas_limit = 21000;
-    
+
     // Prepare transaction data
     let tx_data = TransactionData {
         to: to_address,
@@ -232,13 +228,13 @@ pub fn send_eth<S: Signer>(
         max_priority_fee: Some(priority_fee),
         chain_id,
     };
-    
+
     // Sign the transaction
     let signed_tx = signer.sign_transaction(&tx_data)?;
-    
+
     // Send the transaction
     let tx_hash = provider.send_raw_transaction(signed_tx.into())?;
-    
+
     // Return the receipt with transaction details
     Ok(TxReceipt {
         hash: tx_hash,
@@ -254,12 +250,10 @@ pub fn get_balance(
 ) -> Result<EthAmount, WalletError> {
     // Resolve name to address
     let address = resolve_name(address_or_name, chain_id)?;
-    
+
     // Query balance
     let balance = provider.get_balance(address, None)?;
-    
+
     // Return formatted amount
-    Ok(EthAmount {
-        wei_value: balance,
-    })
+    Ok(EthAmount { wei_value: balance })
 }
