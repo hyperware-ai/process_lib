@@ -12,7 +12,8 @@
 
 use crate::eth::{
     Provider, 
-    EthError
+    EthError,
+    BlockNumberOrTag
 };
 use crate::signer::{
     Signer, 
@@ -21,10 +22,11 @@ use crate::signer::{
     SignerError, 
     EncryptedSignerData
 };
-use crate::hypermap;
+use crate::{hypermap, kiprintln};
 
 use thiserror::Error;
 use alloy_primitives::{Address as EthAddress, TxHash, U256};
+use alloy::rpc::types::TransactionReceipt;
 use std::str::FromStr;
 
 #[derive(Debug, Error)]
@@ -43,6 +45,21 @@ pub enum WalletError {
     
     #[error("transaction error: {0}")]
     TransactionError(String),
+
+    #[error("gas estimation error: {0}")]
+    GasEstimationError(String),
+    
+    #[error("insufficient funds: {0}")]
+    InsufficientFunds(String),
+    
+    #[error("network congestion: {0}")]
+    NetworkCongestion(String),
+    
+    #[error("transaction underpriced")]
+    TransactionUnderpriced,
+    
+    #[error("transaction nonce too low")]
+    TransactionNonceTooLow,
 }
 
 /// Represents the storage state of a wallet's private key
@@ -188,36 +205,52 @@ pub fn send_eth<S: Signer>(
     provider: Provider,
     signer: &S,
 ) -> Result<TxReceipt, WalletError> {
-    // Special handling for Anvil (31337) or other test networks
+
+    kiprintln!("PROCESS_LIB::send_eth provider: {:#?}", provider);
+
+    // Current chain-specific handling
     let chain_id = signer.chain_id();
-    // temp
+    kiprintln!("PROCESS_LIB::send_eth chain_id: {}", chain_id);
+    
+    // This part needs improvement - detect network type more robustly
     let is_test_network = chain_id == 31337 || chain_id == 1337;
     
+    // Use network-specific gas strategies
+    let (gas_price, priority_fee) = match chain_id {
+
+        // just rough calculations for now
+        1 => calculate_eth_mainnet_gas(&provider)?, // mainnet
+        8453 => calculate_base_gas(&provider)?, // Base
+        10 => calculate_optimism_gas(&provider)?, // Optimism
+
+        // Test networks - keep your current approach
+        _ if is_test_network => (2_000_000_000, 100_000_000),
+        
+        // 30% 
+        _ => {
+            kiprintln!("PROCESS_LIB::send_eth getting gas price");
+            let base_fee = provider.get_gas_price()?.to::<u128>();
+            kiprintln!("PROCESS_LIB::send_eth base_fee: {}", base_fee);
+            let adjusted_fee = (base_fee * 130) / 100;
+            kiprintln!("PROCESS_LIB::send_eth adjusted_fee: {}", adjusted_fee);
+            (adjusted_fee, adjusted_fee / 10)
+        }
+    };
+
+    kiprintln!("PROCESS_LIB::send_eth gas_price: {}", gas_price);
+
     // Resolve the name to an address
     let to_address = resolve_name(to, chain_id)?;
-    
+
+    kiprintln!("PROCESS_LIB::send_eth to_address: {}", to_address);
+
     // Get the current nonce for the signer's address
     let from_address = signer.address();
     let nonce = provider.get_transaction_count(from_address, None)?
         .to::<u64>();
-    
-    // Get gas pricing based on network
-    let (gas_price, priority_fee) = if is_test_network {
-        // For test networks like Anvil, use a fixed gas price that's known to work
-        // These specific values work reliably with Anvil
-        (2_000_000_000, 100_000_000) // 2 gwei, 0.1 gwei priority fee
-    } else {
-        // For real networks, get current gas price
-        let base_fee = provider.get_gas_price()?
-            .to::<u128>();
-        
-        // Increase by 20% to ensure transaction goes through
-        let adjusted_fee = (base_fee * 120) / 100;
-        
-        // Priority fee at 10% of gas price
-        (adjusted_fee, adjusted_fee / 10)
-    };
-    
+
+    kiprintln!("PROCESS_LIB::send_eth nonce: {}", nonce);
+
     // Standard gas limit for ETH transfer
     let gas_limit = 21000;
     
@@ -232,18 +265,96 @@ pub fn send_eth<S: Signer>(
         max_priority_fee: Some(priority_fee),
         chain_id,
     };
+
+    kiprintln!("PROCESS_LIB::send_eth tx_data: {:#?}", tx_data);
     
     // Sign the transaction
     let signed_tx = signer.sign_transaction(&tx_data)?;
+
+    kiprintln!("PROCESS_LIB::send_eth signed_tx: {:?}", signed_tx);
     
     // Send the transaction
     let tx_hash = provider.send_raw_transaction(signed_tx.into())?;
+
+    kiprintln!("lol PROCESS_LIB::send_eth tx_hash: {}", tx_hash);
     
     // Return the receipt with transaction details
     Ok(TxReceipt {
         hash: tx_hash,
         details: format!("Sent {} to {}", amount.to_string(), to),
     })
+}
+
+// Helper function to calculate EIP-1559 gas parameters with network-specific values
+fn calculate_eip1559_gas(
+    provider: &Provider, 
+    buffer_fraction: u128, 
+    priority_fee: u128
+) -> Result<(u128, u128), WalletError> {
+    kiprintln!("PROCESS_LIB::calculate_eip1559_gas provider\n", );
+    // Get latest block
+    let latest_block = provider.get_block_by_number(BlockNumberOrTag::Latest, false)?
+        .ok_or_else(|| WalletError::TransactionError("Failed to get latest block".into()))?;
+
+    kiprintln!("PROCESS_LIB::calculate_eip1559_gas latest_block: {:#?}", latest_block);
+    
+    // Get base fee
+    let base_fee = latest_block.header.inner.base_fee_per_gas
+        .ok_or_else(|| WalletError::TransactionError("No base fee in block".into()))?
+        as u128;
+
+    kiprintln!("PROCESS_LIB::calculate_eip1559_gas base_fee: {}", base_fee);
+    
+    // Calculate max fee with the provided buffer fraction
+    let max_fee = base_fee + (base_fee / buffer_fraction);
+
+    kiprintln!("PROCESS_LIB::calculate_eip1559_gas max_fee: {}", max_fee);
+    
+    Ok((max_fee, priority_fee))
+}
+
+// Network-specific gas calculation for Ethereum mainnet
+fn calculate_eth_mainnet_gas(provider: &Provider) -> Result<(u128, u128), WalletError> {
+    // For mainnet: 50% buffer and 1.5 gwei priority fee
+    calculate_eip1559_gas(provider, 2, 1_500_000_000u128)
+}
+
+fn calculate_base_gas(provider: &Provider) -> Result<(u128, u128), WalletError> {
+    // Get the latest block to determine current gas conditions
+    let latest_block = provider.get_block_by_number(BlockNumberOrTag::Latest, false)?
+        .ok_or_else(|| WalletError::TransactionError("Failed to get latest block".into()))?;
+    
+    // Get base fee from the block
+    let base_fee = latest_block.header.inner.base_fee_per_gas
+        .ok_or_else(|| WalletError::TransactionError("No base fee in block".into()))?
+        as u128;
+    
+    // Calculate max fee with a 33% buffer
+    let max_fee = base_fee + (base_fee / 3);
+    
+    // Dynamic priority fee - 10% of base fee, but with a minimum and a maximum
+    // Low minimum for Base which has very low gas prices
+    let min_priority_fee = 100_000u128; // 0.0001 gwei minimum
+    let max_priority_fee = max_fee / 2; // Never more than half the max fee
+    
+    let priority_fee = std::cmp::max(
+        min_priority_fee,
+        std::cmp::min(base_fee / 10, max_priority_fee)
+    );
+    
+    Ok((max_fee, priority_fee))
+}
+
+//// Gas calculation for Base network
+//fn calculate_base_gas(provider: &Provider) -> Result<(u128, u128), WalletError> {
+//    // For Base: 33% buffer and 0.5 gwei priority fee
+//    calculate_eip1559_gas(provider, 3, 500_000_000u128)
+//}
+
+// Gas calculation for Optimism network
+fn calculate_optimism_gas(provider: &Provider) -> Result<(u128, u128), WalletError> {
+    // For Optimism: 25% buffer and 0.3 gwei priority fee
+    calculate_eip1559_gas(provider, 4, 300_000_000u128)
 }
 
 /// Get the ETH balance for an address or name
@@ -262,4 +373,58 @@ pub fn get_balance(
     Ok(EthAmount {
         wei_value: balance,
     })
+}
+
+pub fn wait_for_transaction(
+    tx_hash: TxHash, 
+    provider: Provider,
+    confirmations: u64,
+    timeout_secs: u64
+) -> Result<TransactionReceipt, WalletError> {
+    let start_time = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(timeout_secs);
+    
+    loop {
+        // Check if we've exceeded the timeout
+        if start_time.elapsed() > timeout {
+            return Err(WalletError::TransactionError(
+                format!("Transaction confirmation timeout after {} seconds", timeout_secs)
+            ));
+        }
+        
+        // Try to get the receipt
+        if let Ok(Some(receipt)) = provider.get_transaction_receipt(tx_hash) {
+            // Check if we have enough confirmations
+            let latest_block = provider.get_block_number()?;
+            let receipt_block = receipt.block_number.unwrap_or(0) as u64;
+            
+            if latest_block >= receipt_block + confirmations {
+                return Ok(receipt);
+            }
+        }
+        
+        // Wait a bit before checking again
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    }
+}
+
+// Extract error information from RPC errors
+fn extract_rpc_error(error: &EthError) -> WalletError {
+    match error {
+        EthError::RpcError(value) => {
+            // Try to parse the error message
+            if let Some(message) = value.get("message").and_then(|m| m.as_str()) {
+                if message.contains("insufficient funds") {
+                    return WalletError::InsufficientFunds(message.to_string());
+                } else if message.contains("underpriced") {
+                    return WalletError::TransactionUnderpriced;
+                } else if message.contains("nonce too low") {
+                    return WalletError::TransactionNonceTooLow;
+                }
+                // Add more error patterns as needed
+            }
+            WalletError::TransactionError(format!("RPC error: {:?}", value))
+        },
+        _ => WalletError::TransactionError(format!("Ethereum error: {:?}", error))
+    }
 }

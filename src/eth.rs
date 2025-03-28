@@ -14,6 +14,9 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 
+// TODO: remove this
+use crate::kiprintln;
+
 /// Subscription kind. Pulled directly from alloy (https://github.com/alloy-rs/alloy).
 /// Why? Because alloy is not yet 1.0 and the types in this interface must be stable.
 /// If alloy SubscriptionKind changes, we can implement a transition function in runtime
@@ -334,6 +337,8 @@ impl Provider {
             .send_and_await_response(self.request_timeout)
             .unwrap()
             .map_err(|_| EthError::RpcTimeout)?;
+
+        kiprintln!("PROCESS_LIB::send_request_and_parse_response resp: {:#?}", resp);
 
         match resp {
             Message::Response { body, .. } => match serde_json::from_slice::<EthResponse>(&body) {
@@ -699,6 +704,8 @@ impl Provider {
             // NOTE: tx must be encased by a tuple to be serialized correctly
             params: serde_json::to_value((tx,)).unwrap(),
         };
+        //TODO: remove 
+        kiprintln!("PROCESS_LIB::send_raw_transaction action: {:#?}", action);
 
         self.send_request_and_parse_response::<TxHash>(action)
     }

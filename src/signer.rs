@@ -269,19 +269,30 @@ impl Signer for LocalSigner {
             });
         }
         
-        
         // Convert hyperware types to alloy types 
         let to_str = tx_data.to.to_string();
         let to = alloy_primitives::Address::from_str(&to_str)
             .map_err(|e| SignerError::SigningError(format!("Invalid contract address: {}", e)))?;
             
+        // Create transaction based on chain type
+        // Both Ethereum mainnet and Base use EIP-1559 transactions
         let mut tx = TxEip1559 {
             chain_id: tx_data.chain_id,
             nonce: tx_data.nonce,
             to: TxKind::Call(to),
             gas_limit: tx_data.gas_limit,
             max_fee_per_gas: tx_data.gas_price,
-            max_priority_fee_per_gas: tx_data.max_priority_fee.unwrap_or(tx_data.gas_price / 10),
+            // Use provided priority fee or calculate a reasonable default based on the chain
+            max_priority_fee_per_gas: tx_data.max_priority_fee.unwrap_or_else(|| 
+                match tx_data.chain_id {
+                    // Ethereum mainnet (1)
+                    1 => tx_data.gas_price / 10,
+                    // Base (8453) - typically accepts lower priority fees
+                    8453 => tx_data.gas_price / 5,
+                    // Default fallback for other networks
+                    _ => tx_data.gas_price / 10,
+                }
+            ),
             input: tx_data.data.clone().unwrap_or_default().into(),
             value: tx_data.value,
             ..Default::default()
@@ -302,6 +313,48 @@ impl Signer for LocalSigner {
         
         Ok(buf)
     }
+    //fn sign_transaction(&self, tx_data: &TransactionData) -> Result<Vec<u8>, SignerError> {
+    //    // Verify chain ID matches the signer's chain ID
+    //    if tx_data.chain_id != self.chain_id {
+    //        return Err(SignerError::ChainIdMismatch {
+    //            expected: self.chain_id,
+    //            actual: tx_data.chain_id,
+    //        });
+    //    }
+    //    
+    //    
+    //    // Convert hyperware types to alloy types 
+    //    let to_str = tx_data.to.to_string();
+    //    let to = alloy_primitives::Address::from_str(&to_str)
+    //        .map_err(|e| SignerError::SigningError(format!("Invalid contract address: {}", e)))?;
+    //        
+    //    let mut tx = TxEip1559 {
+    //        chain_id: tx_data.chain_id,
+    //        nonce: tx_data.nonce,
+    //        to: TxKind::Call(to),
+    //        gas_limit: tx_data.gas_limit,
+    //        max_fee_per_gas: tx_data.gas_price,
+    //        max_priority_fee_per_gas: tx_data.max_priority_fee.unwrap_or(tx_data.gas_price / 10),
+    //        input: tx_data.data.clone().unwrap_or_default().into(),
+    //        value: tx_data.value,
+    //        ..Default::default()
+    //    };
+    //    
+    //    // Sign the transaction with the wallet
+    //    let sig = match self.inner.sign_transaction_sync(&mut tx) {
+    //        Ok(sig) => sig,
+    //        Err(e) => return Err(SignerError::SigningError(e.to_string())),
+    //    };
+    //    
+    //    // Create signed transaction envelope 
+    //    let signed = TxEnvelope::from(tx.into_signed(sig));
+    //    
+    //    // Encode the transaction
+    //    let mut buf = vec![];
+    //    signed.encode_2718(&mut buf);
+    //    
+    //    Ok(buf)
+    //}
     
     fn sign_message(&self, message: &[u8]) -> Result<Vec<u8>, SignerError> {
         // Create the Ethereum signed message prefixed hash
