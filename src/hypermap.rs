@@ -14,9 +14,15 @@ use std::str::FromStr;
 /// hypermap deployment address on base
 pub const HYPERMAP_ADDRESS: &'static str = "0x000000000044C6B8Cb4d8f0F889a3E47664EAeda";
 /// base chain id
-pub const HYPERMAP_CHAIN_ID: u64 = 8453;
+#[cfg(not(feature = "simulation-mode"))]
+pub const HYPERMAP_CHAIN_ID: u64 = 8453; // base
+#[cfg(feature = "simulation-mode")]
+pub const HYPERMAP_CHAIN_ID: u64 = 31337; // fakenet
 /// first block (minus one) of hypermap deployment on base
+#[cfg(not(feature = "simulation-mode"))]
 pub const HYPERMAP_FIRST_BLOCK: u64 = 27_270_411;
+#[cfg(feature = "simulation-mode")]
+pub const HYPERMAP_FIRST_BLOCK: u64 = 0;
 /// the root hash of hypermap, empty bytes32
 pub const HYPERMAP_ROOT_HASH: &'static str =
     "0x0000000000000000000000000000000000000000000000000000000000000000";
