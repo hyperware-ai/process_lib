@@ -309,8 +309,8 @@ impl<'de> Deserialize<'de> for NodeOrRpcUrl {
 /// for that chain.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Provider {
-    chain_id: u64,
-    request_timeout: u64,
+    pub chain_id: u64,
+    pub request_timeout: u64,
 }
 
 impl Provider {
@@ -338,7 +338,8 @@ impl Provider {
             .unwrap()
             .map_err(|_| EthError::RpcTimeout)?;
 
-        kiprintln!("PROCESS_LIB::send_request_and_parse_response resp: {:#?}", resp);
+        //TODO: remove
+        //kiprintln!("PROCESS_LIB::send_request_and_parse_response resp: {:#?}", resp);
 
         match resp {
             Message::Response { body, .. } => match serde_json::from_slice::<EthResponse>(&body) {
