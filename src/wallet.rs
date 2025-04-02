@@ -17,9 +17,7 @@ use crate::hypermap::{
     valid_name,
 };
 use crate::hypermap;
-use crate::{
-    kiprintln
-};
+use crate::kiprintln;
 
 use thiserror::Error;
 use alloy_primitives::{
