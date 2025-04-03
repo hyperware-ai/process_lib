@@ -1583,11 +1583,7 @@ dependencies = [
 
 [[package]]
 name = "hyperware_process_lib"
-<<<<<<< HEAD
-version = "1.0.4"
-=======
 version = "1.0.6"
->>>>>>> main
 dependencies = [
  "alloy",
  "alloy-primitives",
