@@ -26,10 +26,6 @@ wit_bindgen::generate!({
 pub mod eth;
 /// High-level Ethereum utilities for common operations.
 pub mod eth_utils;
-/// Ethereum wallet management with transaction preparation and submission.
-pub mod wallet;
-/// Low-level Ethereum signing operations and key management.
-pub mod signer;
 /// Your process must have the [`Capability`] to message
 /// `homepage:homepage:sys` to use this module.
 pub mod homepage;
@@ -39,12 +35,12 @@ pub mod homepage;
 /// Your process must have the [`Capability`] to message and receive messages from
 /// `http-server:distro:sys` and/or `http-client:distro:sys` to use this module.
 pub mod http;
+/// Interact with hypermap, the onchain namespace
+pub mod hypermap;
 /// The types that the kernel itself uses -- warning -- these will
 /// be incompatible with WIT types in some cases, leading to annoying errors.
 /// Use only to interact with the kernel or runtime in certain ways.
 pub mod kernel_types;
-/// Interact with hypermap, the onchain namespace
-pub mod hypermap;
 /// Tools for exploring and working with Token-Bound Accounts (TBAs) in Hypermap
 //pub mod tba_explorer;
 /// Interact with the key_value module
@@ -60,6 +56,8 @@ pub mod logging;
 /// Your process must have the [`Capability`] to message and receive messages from
 /// `net:distro:sys` to use this module.
 pub mod net;
+/// Low-level Ethereum signing operations and key management.
+pub mod signer;
 /// Interact with the sqlite module
 ///
 /// Your process must have the [`Capability] to message and receive messages from
@@ -74,6 +72,8 @@ pub mod timer;
 /// Your process must have the [`Capability`] to message and receive messages from
 /// `vfs:distro:sys` to use this module.
 pub mod vfs;
+/// Ethereum wallet management with transaction preparation and submission.
+pub mod wallet;
 
 /// A set of types and macros for writing "script" processes.
 pub mod scripting;

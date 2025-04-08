@@ -5,31 +5,20 @@
 //! It separates the cryptographic concerns from the higher-level wallet functionality.
 
 use crate::eth::EthError;
-use thiserror::Error;
 use hex;
-use sha3::{Sha3_256, Digest};
 use rand::{thread_rng, RngCore};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_256};
+use thiserror::Error;
 
-use alloy_primitives::{
-    Address as EthAddress, 
-    U256, 
-    B256, 
-};
 use alloy::{
-    signers::{
-        local::PrivateKeySigner,
-        SignerSync,
-    },
-    consensus::{
-        SignableTransaction, 
-        TxEip1559, 
-        TxEnvelope
-    },
+    consensus::{SignableTransaction, TxEip1559, TxEnvelope},
     network::eip2718::Encodable2718,
-    primitives::TxKind,
     network::TxSignerSync,
+    primitives::TxKind,
+    signers::{local::PrivateKeySigner, SignerSync},
 };
+use alloy_primitives::{Address as EthAddress, B256, U256};
 use std::str::FromStr;
 
 // For encryption/decryption
@@ -64,22 +53,22 @@ pub struct TransactionData {
 pub enum SignerError {
     #[error("failed to generate random bytes: {0}")]
     RandomGenerationError(String),
-    
+
     #[error("invalid private key format: {0}")]
     InvalidPrivateKey(String),
-    
+
     #[error("chain ID mismatch: expected {expected}, got {actual}")]
     ChainIdMismatch { expected: u64, actual: u64 },
-    
+
     #[error("failed to sign transaction or message: {0}")]
     SigningError(String),
-    
+
     #[error("ethereum error: {0}")]
     EthError(#[from] EthError),
-    
+
     #[error("encryption error: {0}")]
     EncryptionError(String),
-    
+
     #[error("decryption error: {0}")]
     DecryptionError(String),
 }
@@ -99,13 +88,13 @@ pub struct EncryptedSignerData {
 pub trait Signer {
     /// Get the Ethereum address associated with this signer
     fn address(&self) -> EthAddress;
-    
+
     /// Get the chain ID this signer is configured for
     fn chain_id(&self) -> u64;
-    
+
     /// Sign a transaction with the private key
     fn sign_transaction(&self, tx_data: &TransactionData) -> Result<Vec<u8>, SignerError>;
-    
+
     /// Sign a message following Ethereum's personal_sign format
     fn sign_message(&self, message: &[u8]) -> Result<Vec<u8>, SignerError>;
 }
@@ -115,13 +104,13 @@ pub trait Signer {
 pub struct LocalSigner {
     /// The underlying private key signer from alloy
     pub inner: PrivateKeySigner,
-    
+
     /// The Ethereum address derived from the private key
     pub address: EthAddress,
-    
+
     /// The chain ID this signer is configured for
     pub chain_id: u64,
-    
+
     /// The private key as a hex string
     pub private_key_hex: String,
 }
@@ -207,44 +196,48 @@ impl LocalSigner {
             private_key_hex,
         })
     }
-    
+
     /// Create a signer from a private key in hexadecimal string format
     pub fn from_private_key(private_key: &str, chain_id: u64) -> Result<Self, SignerError> {
         // Remove 0x prefix if present
         let clean_key = private_key.trim_start_matches("0x");
-        
+
         // Parse hex string into bytes
         if clean_key.len() != 64 {
             return Err(SignerError::InvalidPrivateKey(
-                "Private key must be 32 bytes (64 hex characters)".to_string()
+                "Private key must be 32 bytes (64 hex characters)".to_string(),
             ));
         }
-        
-        let key_bytes = hex::decode(clean_key)
-            .map_err(|e| SignerError::InvalidPrivateKey(e.to_string()))?;
-            
+
+        let key_bytes =
+            hex::decode(clean_key).map_err(|e| SignerError::InvalidPrivateKey(e.to_string()))?;
+
         Self::from_bytes(&key_bytes, chain_id, format!("0x{}", clean_key))
     }
-    
+
     /// Create a signer from raw private key bytes
-    fn from_bytes(bytes: &[u8], chain_id: u64, private_key_hex: String) -> Result<Self, SignerError> {
+    fn from_bytes(
+        bytes: &[u8],
+        chain_id: u64,
+        private_key_hex: String,
+    ) -> Result<Self, SignerError> {
         if bytes.len() != 32 {
             return Err(SignerError::InvalidPrivateKey(
-                "Private key must be exactly 32 bytes".to_string()
+                "Private key must be exactly 32 bytes".to_string(),
             ));
         }
-        
+
         // Convert to B256 (fixed bytes)
         let key = B256::from_slice(bytes);
-        
+
         // Create the PrivateKeySigner
         let inner = match PrivateKeySigner::from_bytes(&key) {
             Ok(wallet) => wallet,
             Err(e) => return Err(SignerError::InvalidPrivateKey(e.to_string())),
         };
-        
+
         let address = inner.address();
-        
+
         Ok(Self {
             inner,
             address,
@@ -257,15 +250,15 @@ impl LocalSigner {
     pub fn encrypt(&self, password: &str) -> Result<EncryptedSignerData, SignerError> {
         // Extract the private key hex (without 0x prefix)
         let clean_key = self.private_key_hex.trim_start_matches("0x");
-        
+
         // Convert to bytes
-        let key_bytes = hex::decode(clean_key)
-            .map_err(|e| SignerError::EncryptionError(e.to_string()))?;
-        
+        let key_bytes =
+            hex::decode(clean_key).map_err(|e| SignerError::EncryptionError(e.to_string()))?;
+
         // Encrypt the private key
-        let encrypted_data = encrypt_data(&key_bytes, password)
-            .map_err(|e| SignerError::EncryptionError(e))?;
-            
+        let encrypted_data =
+            encrypt_data(&key_bytes, password).map_err(|e| SignerError::EncryptionError(e))?;
+
         // Create encrypted data structure
         Ok(EncryptedSignerData {
             encrypted_data,
@@ -273,19 +266,19 @@ impl LocalSigner {
             chain_id: self.chain_id,
         })
     }
-    
+
     /// Decrypt an encrypted signer
     pub fn decrypt(encrypted: &EncryptedSignerData, password: &str) -> Result<Self, SignerError> {
         let decrypted_bytes = decrypt_data(&encrypted.encrypted_data, password)
             .map_err(|e| SignerError::DecryptionError(e))?;
-        
+
         // Convert bytes back to hex string
         let private_key_hex = format!("0x{}", hex::encode(&decrypted_bytes));
-        
+
         // Create a new signer with the specified chain ID
         Self::from_bytes(&decrypted_bytes, encrypted.chain_id, private_key_hex)
     }
-    
+
     /// Export the private key as a hexadecimal string
     pub fn export_private_key(&self) -> String {
         self.private_key_hex.clone()
@@ -296,7 +289,7 @@ impl Signer for LocalSigner {
     fn address(&self) -> EthAddress {
         self.address
     }
-    
+
     fn chain_id(&self) -> u64 {
         self.chain_id
     }
@@ -338,32 +331,32 @@ impl Signer for LocalSigner {
             value: tx_data.value,
             ..Default::default()
         };
-        
+
         // Sign the transaction with the wallet
         let sig = match self.inner.sign_transaction_sync(&mut tx) {
             Ok(sig) => sig,
             Err(e) => return Err(SignerError::SigningError(e.to_string())),
         };
-        
-        // Create signed transaction envelope 
+
+        // Create signed transaction envelope
         let signed = TxEnvelope::from(tx.into_signed(sig));
-        
+
         // Encode the transaction
         let mut buf = vec![];
         signed.encode_2718(&mut buf);
-        
+
         Ok(buf)
     }
-    
+
     fn sign_message(&self, message: &[u8]) -> Result<Vec<u8>, SignerError> {
         // Create the Ethereum signed message prefixed hash
         let prefix = format!("\x19Ethereum Signed Message:\n{}", message.len());
         let prefixed_message = [prefix.as_bytes(), message].concat();
-        
+
         // Hash the message
         let hash = sha3::Keccak256::digest(&prefixed_message);
         let hash_bytes = B256::from_slice(hash.as_slice());
-        
+
         // Sign the hash
         match self.inner.sign_hash_sync(&hash_bytes) {
             Ok(signature) => Ok(signature.as_bytes().to_vec()),
@@ -399,7 +392,8 @@ pub fn encrypt_data(data: &[u8], password: &str) -> Result<Vec<u8>, String> {
         nonce.as_ref(),
         encrypted_data.as_ref(),
         tag.as_ref(),
-    ].concat())
+    ]
+    .concat())
 }
 
 /// Decrypt an encrypted private key
@@ -426,7 +420,7 @@ pub fn decrypt_data(encrypted_data: &[u8], password: &str) -> Result<Vec<u8>, St
 
     // Decrypt data
     let plaintext = decrypt_with_key(ciphertext, &key, nonce);
-    
+
     Ok(plaintext)
 }
 
@@ -437,7 +431,7 @@ fn derive_key(password: &[u8], salt: &[u8]) -> [u8; KEY_SIZE] {
     hasher.update(salt);
     hasher.update(password);
     let mut key = hasher.finalize().into();
-    
+
     // Multiple iterations for stronger key derivation
     for _ in 0..10000 {
         let mut hasher = Sha3_256::new();
@@ -445,24 +439,24 @@ fn derive_key(password: &[u8], salt: &[u8]) -> [u8; KEY_SIZE] {
         hasher.update(salt);
         key = hasher.finalize().into();
     }
-    
+
     key
 }
 
 /// Encrypt data with a key and nonce using XOR
 fn encrypt_with_key(data: &[u8], key: &[u8; KEY_SIZE], nonce: &[u8]) -> Vec<u8> {
     let mut result = Vec::with_capacity(data.len());
-    
+
     for (i, &byte) in data.iter().enumerate() {
         // Create a unique keystream byte for each position
         let key_byte = key[i % key.len()];
         let nonce_byte = nonce[i % nonce.len()];
         let keystream = key_byte ^ nonce_byte ^ (i as u8);
-        
+
         // XOR with data
         result.push(byte ^ keystream);
     }
-    
+
     result
 }
 
@@ -478,7 +472,7 @@ fn compute_tag(salt: &[u8], nonce: &[u8], data: &[u8], key: &[u8]) -> Vec<u8> {
     hasher.update(nonce);
     hasher.update(data);
     hasher.update(key);
-    
+
     let hash = hasher.finalize();
     hash[..TAG_SIZE].to_vec()
 }
