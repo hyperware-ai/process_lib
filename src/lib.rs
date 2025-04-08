@@ -24,8 +24,6 @@ wit_bindgen::generate!({
 
 /// Interact with the eth provider module.
 pub mod eth;
-/// High-level Ethereum utilities for common operations.
-pub mod eth_utils;
 /// Your process must have the [`Capability`] to message
 /// `homepage:homepage:sys` to use this module.
 pub mod homepage;
