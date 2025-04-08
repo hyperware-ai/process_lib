@@ -126,16 +126,79 @@ pub struct LocalSigner {
     pub private_key_hex: String,
 }
 
+// Manual implementation of Serialize for LocalSigner
+impl Serialize for LocalSigner {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        
+        // Serialize only the fields we need
+        let mut state = serializer.serialize_struct("LocalSigner", 3)?;
+        state.serialize_field("address", &self.address)?;
+        state.serialize_field("chain_id", &self.chain_id)?;
+        state.serialize_field("private_key_hex", &self.private_key_hex)?;
+        state.end()
+    }
+}
+
+// Manual implementation of Deserialize for LocalSigner
+impl<'de> Deserialize<'de> for LocalSigner {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct LocalSignerData {
+            address: EthAddress,
+            chain_id: u64,
+            private_key_hex: String,
+        }
+        
+        let data = LocalSignerData::deserialize(deserializer)?;
+        
+        // Reconstruct the LocalSigner from the private key
+        match LocalSigner::from_private_key(&data.private_key_hex, data.chain_id) {
+            Ok(signer) => Ok(signer),
+            Err(e) => Err(serde::de::Error::custom(format!("Failed to reconstruct signer: {}", e))),
+        }
+    }
+}
+
 impl LocalSigner {
     /// Create a new signer with a randomly generated private key
     pub fn new_random(chain_id: u64) -> Result<Self, SignerError> {
-        // Generate a secure random private key
-        let inner = PrivateKeySigner::random();
+        // Generate a secure random private key directly
+        let mut rng = thread_rng();
+        let mut private_key_bytes = [0u8; 32];
+        rng.fill_bytes(&mut private_key_bytes);
+        
+        // Make sure the private key is valid (less than curve order)
+        // TODO: This is a simplification 
+        let max_scalar = hex::decode("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140")
+            .map_err(|_| SignerError::RandomGenerationError("Failed to decode max scalar".to_string()))?;
+        
+        // Simple check: if our random bytes are >= max_scalar, regenerate
+        // This is a simplified approach - production code would use more sophisticated comparison
+        if private_key_bytes.as_slice().cmp(max_scalar.as_slice()) != std::cmp::Ordering::Less {
+            // Try again with a new random value
+            rng.fill_bytes(&mut private_key_bytes);
+        }
+        
+        // Convert to B256 for the PrivateKeySigner
+        let key = B256::from_slice(&private_key_bytes);
+        
+        // Store the private key hex string for later use
+        let private_key_hex = format!("0x{}", hex::encode(private_key_bytes));
+        
+        // Create the PrivateKeySigner
+        let inner = match PrivateKeySigner::from_bytes(&key) {
+            Ok(signer) => signer,
+            Err(e) => return Err(SignerError::InvalidPrivateKey(e.to_string())),
+        };
         
         let address = inner.address();
-        
-        // Extract the private key for storage
-        let private_key_hex = Self::extract_private_key(&inner)?;
         
         Ok(Self {
             inner,
@@ -188,28 +251,6 @@ impl LocalSigner {
             chain_id,
             private_key_hex,
         })
-    }
-    
-    // jank
-    /// Extract the private key hex string from an Alloy PrivateKeySigner 
-    fn extract_private_key(wallet: &PrivateKeySigner) -> Result<String, SignerError> {
-        // This is a placeholder implementation until we find a better way to extract
-        // the private key from PrivateKeySigner
-        let debug_str = format!("{:?}", wallet);
-        
-        // Parse the private key from the debug output
-        let start_marker = "private_key: PrivateKey(";
-        let end_marker = ")";
-        
-        if let Some(start_idx) = debug_str.find(start_marker) {
-            let key_start = start_idx + start_marker.len();
-            if let Some(end_idx) = debug_str[key_start..].find(end_marker) {
-                let key_hex = &debug_str[key_start..key_start + end_idx];
-                return Ok(format!("0x{}", key_hex.trim_start_matches("0x")));
-            }
-        }
-        
-        Err(SignerError::InvalidPrivateKey("Failed to extract private key".into()))
     }
     
     /// Encrypt this signer using a password

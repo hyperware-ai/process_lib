@@ -1,3 +1,13 @@
+//! ## (unfinished, unpolished and not fully tested)  Ethereum wallet functionality for Hyperware.
+//!
+//! This module provides high-level wallet functionality for Ethereum,
+//! including transaction signing, contract interaction, and account management.
+//! It provides a simple interface for sending ETH and interacting with ERC20,
+//! ERC721, and ERC1155 tokens.
+//!
+//! ERC6551 + the hypermap is not supported yet.
+//! 
+
 use crate::eth::{
     Provider, 
     EthError,
@@ -27,13 +37,13 @@ use alloy_primitives::{
     Bytes
 };
 use alloy::rpc::types::{
-    TransactionReceipt, 
-    TransactionRequest
+    Block, BlockId, Filter, FilterBlockOption, FilterSet, Log, Transaction,
+    TransactionReceipt, request::TransactionRequest,
 };
 use alloy_primitives::TxKind;
 use std::str::FromStr;
 use alloy_sol_types::{sol, SolCall};
-
+use serde::{Serialize, Deserialize};
 sol! {
     interface IERC20 {
         function balanceOf(address who) external view returns (uint256);
@@ -116,6 +126,56 @@ pub enum KeyStorage {
     Encrypted(EncryptedSignerData),
 }
 
+// Manual implementation of Serialize for KeyStorage
+impl Serialize for KeyStorage {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        
+        match self {
+            KeyStorage::Decrypted(signer) => {
+                let mut state = serializer.serialize_struct("KeyStorage", 2)?;
+                state.serialize_field("type", "Decrypted")?;
+                state.serialize_field("signer", signer)?;
+                state.end()
+            },
+            KeyStorage::Encrypted(data) => {
+                let mut state = serializer.serialize_struct("KeyStorage", 2)?;
+                state.serialize_field("type", "Encrypted")?;
+                state.serialize_field("data", data)?;
+                state.end()
+            }
+        }
+    }
+}
+
+// Manual implementation of Deserialize for KeyStorage
+impl<'de> Deserialize<'de> for KeyStorage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(tag = "type")]
+        enum KeyStorageData {
+            #[serde(rename = "Decrypted")]
+            Decrypted { signer: LocalSigner },
+            
+            #[serde(rename = "Encrypted")]
+            Encrypted { data: EncryptedSignerData },
+        }
+        
+        let data = KeyStorageData::deserialize(deserializer)?;
+        
+        match data {
+            KeyStorageData::Decrypted { signer } => Ok(KeyStorage::Decrypted(signer)),
+            KeyStorageData::Encrypted { data } => Ok(KeyStorage::Encrypted(data)),
+        }
+    }
+}
+
 impl KeyStorage {
     /// Get the encrypted data if this is an encrypted key storage
     pub fn get_encrypted_data(&self) -> Option<Vec<u8>> {
@@ -191,6 +251,19 @@ impl EthAmount {
     
     /// Get a human-readable string representation
     pub fn to_string(&self) -> String {
+        // Just return the numerical value without denomination
+        if self.wei_value >= U256::from(100_000_000_000_000u128) {
+            // Convert to u128 first (safe since ETH total supply fits in u128) then to f64
+            let wei_u128 = self.wei_value.to::<u128>();
+            let eth_value = wei_u128 as f64 / 1_000_000_000_000_000_000.0;
+            format!("{:.6}", eth_value)
+        } else {
+            format!("{}", self.wei_value)
+        }
+    }
+
+    /// Get a formatted string with denomination (for display purposes)
+    pub fn to_display_string(&self) -> String {
         // For values over 0.0001 ETH, show in ETH, otherwise in wei
         if self.wei_value >= U256::from(100_000_000_000_000u128) {
             // Convert to u128 first (safe since ETH total supply fits in u128) then to f64
@@ -254,7 +327,6 @@ fn call_view_function<T: SolCall>(
 
 /// Calculate gas parameters based on network type
 fn calculate_gas_params(provider: &Provider, chain_id: u64) -> Result<(u128, u128), WalletError> {
-    kiprintln!("PL:: Calculating gas parameters for chain ID: {}", chain_id);
 
     match chain_id {
         1 => { // Mainnet: 50% buffer and 1.5 gwei priority fee
@@ -268,28 +340,21 @@ fn calculate_gas_params(provider: &Provider, chain_id: u64) -> Result<(u128, u12
             Ok((base_fee + (base_fee / 2), 1_500_000_000u128))
         },
         8453 => { // Base
-            kiprintln!("PL:: Calculating gas parameters for Base");
             let latest_block = provider.get_block_by_number(BlockNumberOrTag::Latest, false)?
                 .ok_or_else(|| WalletError::TransactionError("Failed to get latest block".into()))?;
             
-            kiprintln!("PL:: Got latest block");
             let base_fee = latest_block.header.inner.base_fee_per_gas
                 .ok_or_else(|| WalletError::TransactionError("No base fee in block".into()))?
                 as u128;
             
-            kiprintln!("PL:: Got base fee: {}", base_fee);
             
             let max_fee = base_fee + (base_fee / 3);
-            kiprintln!("PL:: max fee: {}", max_fee);
             
             let min_priority_fee = 100_000u128;
-            kiprintln!("PL:: min priority fee: {}", min_priority_fee);
             
             let max_priority_fee = max_fee / 2;
-            kiprintln!("PL:: max priority fee: {}", max_priority_fee);
             
             let priority_fee = std::cmp::max(min_priority_fee, std::cmp::min(base_fee / 10, max_priority_fee));
-            kiprintln!("PL:: priority fee: {}", priority_fee);
 
             Ok((max_fee, priority_fee))
         },
@@ -325,28 +390,21 @@ fn prepare_and_send_tx<S: Signer, F>(
     format_receipt: F
 ) -> Result<TxReceipt, WalletError>
 where F: FnOnce(TxHash) -> String {
-    kiprintln!("PL:: Preparing transaction...");
 
     // Get the current nonce for the signer's address
     let signer_address = signer.address();
     let nonce = provider.get_transaction_count(signer_address, None)?
         .to::<u64>();
     
-    kiprintln!("PL:: Got nonce: {}", nonce);
     
     // Calculate gas parameters based on chain ID
     let (gas_price, priority_fee) = calculate_gas_params(provider, signer.chain_id())?;
     
-    kiprintln!("PL:: Calculated gas params - price: {}, priority fee: {}", gas_price, priority_fee);
     
     // Use provided gas limit or estimate it with 20% buffer
     let gas_limit = match gas_limit {
-        Some(limit) => {
-            kiprintln!("PL:: Using provided gas limit: {}", limit);
-            limit
-        },
+        Some(limit) => limit,
         None => {
-            kiprintln!("PL:: Estimating gas limit...");
             let tx_req = TransactionRequest {
                 from: Some(signer_address),
                 to: Some(TxKind::Call(to)),
@@ -357,11 +415,9 @@ where F: FnOnce(TxHash) -> String {
             match provider.estimate_gas(tx_req, None) {
                 Ok(gas) => {
                     let limit = (gas.to::<u64>() * 120) / 100; // Add 20% buffer
-                    kiprintln!("PL:: Estimated gas limit with buffer: {}", limit);
                     limit
                 },
                 Err(_) => {
-                    kiprintln!("PL:: Gas estimation failed, using default: 100,000");
                     100_000 // Default value if estimation fails
                 }
             }
@@ -380,12 +436,10 @@ where F: FnOnce(TxHash) -> String {
         chain_id: signer.chain_id(),
     };
     
-    kiprintln!("PL:: Signing transaction...");
     
     // Sign and send transaction
     let signed_tx = signer.sign_transaction(&tx_data)?;
     
-    kiprintln!("PL:: Sending transaction...");
     let tx_hash = provider.send_raw_transaction(signed_tx.into())?;
     
     kiprintln!("PL:: Transaction sent with hash: {}", tx_hash);
@@ -456,7 +510,7 @@ where F: FnOnce() -> String {
 // NAME RESOLUTION
 //
 
-// Resolve a .hypr name to an Ethereum address using Hypermap
+// Resolve a .hypr/.os/future tlzs names to an Ethereum address using Hypermap
 pub fn resolve_name(name: &str, chain_id: u64) -> Result<EthAddress, WalletError> {
     // If it's already an address, just parse it
     if name.starts_with("0x") && name.len() == 42 {
@@ -570,6 +624,22 @@ pub fn resolve_token_symbol(token: &str, chain_id: u64) -> Result<EthAddress, Wa
                     .map_err(|_| WalletError::NameResolutionError("Invalid WETH address format".to_string())),
                 _ => Err(WalletError::NameResolutionError(
                     format!("Token '{}' not recognized on chain ID {}", token, chain_id)
+                )),
+            }
+        },
+        11155111 => { // Sepolia Testnet
+            match token_upper.as_str() {
+                // Common tokens on Sepolia testnet
+                "USDC" => EthAddress::from_str("0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238")
+                    .map_err(|_| WalletError::NameResolutionError("Invalid USDC address format".to_string())),
+                "USDT" => EthAddress::from_str("0x8267cF9254734C6Eb452a7bb9AAF97B392258b21")
+                    .map_err(|_| WalletError::NameResolutionError("Invalid USDT address format".to_string())),
+                "DAI" => EthAddress::from_str("0x3e622317f8C93f7328350cF0B56d9eD4C620C5d6")
+                    .map_err(|_| WalletError::NameResolutionError("Invalid DAI address format".to_string())),
+                "WETH" => EthAddress::from_str("0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9")
+                    .map_err(|_| WalletError::NameResolutionError("Invalid WETH address format".to_string())),
+                _ => Err(WalletError::NameResolutionError(
+                    format!("Token '{}' not recognized on Sepolia testnet. Please use a contract address.", token)
                 )),
             }
         },
@@ -810,8 +880,6 @@ pub fn erc20_transfer<S: Signer>(
     let token_symbol = erc20_symbol(token_address, provider).unwrap_or_else(|_| "tokens".to_string());
     let token_decimals = erc20_decimals(token_address, provider).unwrap_or(18);
     
-    kiprintln!("PL:: Token symbol: {}", token_symbol);
-    kiprintln!("PL:: Token decimals: {}", token_decimals);
     
     // Format receipt message
     let format_receipt = move |_| {
@@ -819,7 +887,6 @@ pub fn erc20_transfer<S: Signer>(
         format!("Transferred {:.6} {} to {}", amount_float, token_symbol, to_address)
     };
     
-    kiprintln!("PL:: Sending ERC20 transfer transaction...");
     
     // Prepare and send transaction
     prepare_and_send_tx(
@@ -1364,4 +1431,308 @@ pub fn set_gene<S: Signer>(
         provider,
         signer
     )
+}
+
+
+
+// TODO: TEST
+//
+//
+//
+//
+//
+//
+
+/// Transaction details in a more user-friendly format
+#[derive(Debug, Clone)]
+pub struct TransactionDetails {
+    pub hash: TxHash,
+    pub from: EthAddress,
+    pub to: Option<EthAddress>,
+    pub value: EthAmount,
+    pub block_number: Option<u64>,
+    pub timestamp: Option<u64>,
+    pub gas_used: Option<u64>,
+    pub gas_price: Option<U256>,
+    pub success: Option<bool>,
+    pub direction: TransactionDirection,
+}
+
+/// Direction of the transaction relative to the address
+#[derive(Debug, Clone, PartialEq)]
+pub enum TransactionDirection {
+    Incoming,
+    Outgoing,
+    SelfTransfer,
+}
+
+/// Get transactions for an address - simplified version that works with Alloy
+pub fn get_address_transactions(
+    address_or_name: &str,
+    provider: &Provider,
+    max_blocks_back: Option<u64>
+) -> Result<Vec<TransactionDetails>, WalletError> {
+    let target_address = resolve_name(address_or_name, provider.chain_id)?;
+    
+    // Get block range
+    let latest_block = provider.get_block_number()?;
+    let blocks_back = max_blocks_back.unwrap_or(1000);
+    let start_block = if latest_block > blocks_back {
+        latest_block - blocks_back
+    } else {
+        0
+    };
+    
+    // Create filter to find logs involving our address
+    let filter = Filter {
+        block_option: FilterBlockOption::Range {
+            from_block: Some(start_block.into()),
+            to_block: Some(latest_block.into()),
+        },
+        address: FilterSet::from(vec![target_address]),
+        topics: Default::default(),
+    };
+    
+    // Get logs matching our filter
+    let logs = provider.get_logs(&filter)?;
+    kiprintln!("Found {} logs involving address {}", logs.len(), target_address);
+    
+    // Extract unique transaction hashes
+    let mut tx_hashes = Vec::new();
+    for log in logs {
+        if let Some(hash) = log.transaction_hash {
+            if !tx_hashes.contains(&hash) {
+                tx_hashes.push(hash);
+            }
+        }
+    }
+    
+    // Create transaction details objects for each tx hash
+    let mut transactions = Vec::new();
+    
+    for tx_hash in tx_hashes {
+        // For each transaction, create a basic TransactionDetails object
+        // with just the transaction hash and basic direction
+        let mut tx_detail = TransactionDetails {
+            hash: tx_hash,
+            from: EthAddress::default(), // We'll update this if we can get the transaction
+            to: None,
+            value: EthAmount { wei_value: U256::ZERO },
+            block_number: None,
+            timestamp: None,
+            gas_used: None,
+            gas_price: None,
+            success: None,
+            direction: TransactionDirection::Incoming, // Default, will update if needed
+        };
+        
+        // Try to get transaction receipt for more details
+        if let Ok(Some(receipt)) = provider.get_transaction_receipt(tx_hash) {
+            // Update from receipt fields that we know exist
+            tx_detail.block_number = receipt.block_number;
+            
+            // Get transaction success status if available
+            let status = receipt.status();
+            if status {
+                tx_detail.success = Some(true);
+            } else {
+                tx_detail.success = Some(false);
+            }
+            
+            // Try to get original transaction for more details
+            if let Ok(Some(tx)) = provider.get_transaction_by_hash(tx_hash) {
+                // Update from transaction fields
+                tx_detail.from = tx.from;
+                
+                // Set direction based on compared addresses
+                if tx.from == target_address {
+                    tx_detail.direction = TransactionDirection::Outgoing;
+                } else {
+                    tx_detail.direction = TransactionDirection::Incoming;
+                }
+                
+                // Try to get block timestamp if we have block number
+                if let Some(block_num) = tx_detail.block_number {
+                    if let Ok(Some(block)) = provider.get_block_by_number(BlockNumberOrTag::Number(block_num), false) {
+                        // Block header timestamp is a u64, not an Option
+                        tx_detail.timestamp = Some(block.header.timestamp);
+                    }
+                }
+            }
+        }
+        
+        transactions.push(tx_detail);
+    }
+    
+    // Sort by block number (descending)
+    transactions.sort_by(|a, b| {
+        match (b.block_number, a.block_number) {
+            (Some(b_num), Some(a_num)) => b_num.cmp(&a_num),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        }
+    });
+    
+    Ok(transactions)
+}
+
+/// Format transaction details for display
+pub fn format_transaction_details(tx: &TransactionDetails) -> String {
+    // Symbol to represent transaction direction
+    let direction_symbol = match tx.direction {
+        TransactionDirection::Incoming => "←",
+        TransactionDirection::Outgoing => "→",
+        TransactionDirection::SelfTransfer => "↻",
+    };
+    
+    // Transaction status
+    let status = match tx.success {
+        Some(true) => "Succeeded",
+        Some(false) => "Failed",
+        None => "Unknown",
+    };
+    
+    // Format value
+    let value = tx.value.to_string();
+    
+    // Format timestamp without external dependencies
+    let timestamp = match tx.timestamp {
+        Some(ts) => format_timestamp(ts),
+        None => "Pending".to_string(),
+    };
+    
+    // Format to and from addresses
+    let from_addr = format!("{:.8}...{}", 
+        tx.from.to_string()[0..10].to_string(),
+        tx.from.to_string()[34..].to_string());
+    
+    let to_addr = tx.to.map_or("Contract Creation".to_string(), |addr| 
+        format!("{:.8}...{}", 
+            addr.to_string()[0..10].to_string(),
+            addr.to_string()[34..].to_string())
+    );
+    
+    // Format final output
+    format!(
+        "TX: {} [{}]\n   {} {} {}\n   Block: {}, Status: {}, Value: {}, Time: {}",
+        tx.hash,
+        status,
+        from_addr,
+        direction_symbol,
+        to_addr,
+        tx.block_number.map_or("Pending".to_string(), |b| b.to_string()),
+        status,
+        value,
+        timestamp
+    )
+}
+/// Format a Unix timestamp without external dependencies
+fn format_timestamp(timestamp: u64) -> String {
+    // Simple timestamp formatting
+    // We'll use a very basic approach that doesn't rely on date/time libraries
+    
+    // Convert to seconds, minutes, hours, days since epoch
+    let secs = timestamp % 60;
+    let mins = (timestamp / 60) % 60;
+    let hours = (timestamp / 3600) % 24;
+    let days_since_epoch = timestamp / 86400;
+    
+    // Very rough estimation - doesn't account for leap years properly
+    let years_since_epoch = days_since_epoch / 365;
+    let days_this_year = days_since_epoch % 365;
+    
+    // Rough month calculation
+    let month_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut month = 0;
+    let mut day = days_this_year as u32;
+    
+    // Adjust for leap years in a very rough way
+    let is_leap_year = (1970 + years_since_epoch as u32) % 4 == 0;
+    let month_days = if is_leap_year {
+        let mut md = month_days.to_vec();
+        md[1] = 29; // February has 29 days in leap years
+        md
+    } else {
+        month_days.to_vec()
+    };
+    
+    // Find month and day
+    for (i, &days_in_month) in month_days.iter().enumerate() {
+        if day < days_in_month {
+            month = i;
+            break;
+        }
+        day -= days_in_month;
+    }
+    
+    // Adjust to 1-based
+    day += 1;
+    month += 1;
+    
+    // Format the date
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        1970 + years_since_epoch,
+        month,
+        day,
+        hours,
+        mins,
+        secs
+    )
+}
+
+// New structured type to hold all ERC20 token information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenDetails {
+    pub address: String,
+    pub symbol: String,
+    pub name: String,
+    pub decimals: u8,
+    pub total_supply: String,
+    pub balance: String,
+    pub formatted_balance: String,
+}
+
+/// Get all relevant details for an ERC20 token in one call
+/// This consolidates multiple calls into a single function for frontend use
+pub fn get_token_details(
+    token_address: &str,
+    wallet_address: &str,
+    provider: &Provider
+) -> Result<TokenDetails, WalletError> {
+    // First resolve the token address (could be a symbol or address)
+    let token = match resolve_token_symbol(token_address, provider.chain_id) {
+        Ok(addr) => addr,
+        Err(_) => resolve_name(token_address, provider.chain_id)?,
+    };
+    
+    // Get basic token information
+    let token_str = token.to_string();
+    let symbol = erc20_symbol(token_address, provider)?;
+    let name = erc20_name(token_address, provider)?;
+    let decimals = erc20_decimals(token_address, provider)?;
+    
+    // Get total supply
+    let total_supply = erc20_total_supply(token_address, provider)?;
+    let total_supply_float = total_supply.to::<u128>() as f64 / 10f64.powi(decimals as i32);
+    let formatted_total_supply = format!("{:.2}", total_supply_float);
+    
+    // Get balance if wallet address is provided
+    let (balance, formatted_balance) = if !wallet_address.is_empty() {
+        let balance = erc20_balance_of(token_address, wallet_address, provider)?;
+        (balance.to_string(), format!("{:.6}", balance))
+    } else {
+        ("0".to_string(), "0.000000".to_string())
+    };
+    
+    Ok(TokenDetails {
+        address: token_str,
+        symbol,
+        name,
+        decimals,
+        total_supply: formatted_total_supply,
+        balance,
+        formatted_balance,
+    })
 }
