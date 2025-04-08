@@ -705,7 +705,7 @@ impl Provider {
             // NOTE: tx must be encased by a tuple to be serialized correctly
             params: serde_json::to_value((tx,)).unwrap(),
         };
-        //TODO: remove 
+        //TODO: remove
         kiprintln!("PROCESS_LIB::send_raw_transaction action: {:#?}", action);
 
         self.send_request_and_parse_response::<TxHash>(action)

@@ -122,7 +122,7 @@ impl Serialize for LocalSigner {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        
+
         // Serialize only the fields we need
         let mut state = serializer.serialize_struct("LocalSigner", 3)?;
         state.serialize_field("address", &self.address)?;
@@ -144,13 +144,16 @@ impl<'de> Deserialize<'de> for LocalSigner {
             chain_id: u64,
             private_key_hex: String,
         }
-        
+
         let data = LocalSignerData::deserialize(deserializer)?;
-        
+
         // Reconstruct the LocalSigner from the private key
         match LocalSigner::from_private_key(&data.private_key_hex, data.chain_id) {
             Ok(signer) => Ok(signer),
-            Err(e) => Err(serde::de::Error::custom(format!("Failed to reconstruct signer: {}", e))),
+            Err(e) => Err(serde::de::Error::custom(format!(
+                "Failed to reconstruct signer: {}",
+                e
+            ))),
         }
     }
 }
@@ -162,33 +165,36 @@ impl LocalSigner {
         let mut rng = thread_rng();
         let mut private_key_bytes = [0u8; 32];
         rng.fill_bytes(&mut private_key_bytes);
-        
+
         // Make sure the private key is valid (less than curve order)
-        // TODO: This is a simplification 
-        let max_scalar = hex::decode("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140")
-            .map_err(|_| SignerError::RandomGenerationError("Failed to decode max scalar".to_string()))?;
-        
+        // TODO: This is a simplification
+        let max_scalar =
+            hex::decode("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140")
+                .map_err(|_| {
+                    SignerError::RandomGenerationError("Failed to decode max scalar".to_string())
+                })?;
+
         // Simple check: if our random bytes are >= max_scalar, regenerate
         // This is a simplified approach - production code would use more sophisticated comparison
         if private_key_bytes.as_slice().cmp(max_scalar.as_slice()) != std::cmp::Ordering::Less {
             // Try again with a new random value
             rng.fill_bytes(&mut private_key_bytes);
         }
-        
+
         // Convert to B256 for the PrivateKeySigner
         let key = B256::from_slice(&private_key_bytes);
-        
+
         // Store the private key hex string for later use
         let private_key_hex = format!("0x{}", hex::encode(private_key_bytes));
-        
+
         // Create the PrivateKeySigner
         let inner = match PrivateKeySigner::from_bytes(&key) {
             Ok(signer) => signer,
             Err(e) => return Err(SignerError::InvalidPrivateKey(e.to_string())),
         };
-        
+
         let address = inner.address();
-        
+
         Ok(Self {
             inner,
             address,
@@ -245,7 +251,7 @@ impl LocalSigner {
             private_key_hex,
         })
     }
-    
+
     /// Encrypt this signer using a password
     pub fn encrypt(&self, password: &str) -> Result<EncryptedSignerData, SignerError> {
         // Extract the private key hex (without 0x prefix)
@@ -302,12 +308,12 @@ impl Signer for LocalSigner {
                 actual: tx_data.chain_id,
             });
         }
-        
-        // Convert hyperware types to alloy types 
+
+        // Convert hyperware types to alloy types
         let to_str = tx_data.to.to_string();
         let to = alloy_primitives::Address::from_str(&to_str)
             .map_err(|e| SignerError::SigningError(format!("Invalid contract address: {}", e)))?;
-            
+
         // Create transaction based on chain type
         // Both Ethereum mainnet and Base use EIP-1559 transactions
         let mut tx = TxEip1559 {
@@ -317,7 +323,7 @@ impl Signer for LocalSigner {
             gas_limit: tx_data.gas_limit,
             max_fee_per_gas: tx_data.gas_price,
             // Use provided priority fee or calculate a reasonable default based on the chain
-            max_priority_fee_per_gas: tx_data.max_priority_fee.unwrap_or_else(|| 
+            max_priority_fee_per_gas: tx_data.max_priority_fee.unwrap_or_else(|| {
                 match tx_data.chain_id {
                     // Ethereum mainnet (1)
                     1 => tx_data.gas_price / 10,
@@ -326,7 +332,7 @@ impl Signer for LocalSigner {
                     // Default fallback for other networks
                     _ => tx_data.gas_price / 10,
                 }
-            ),
+            }),
             input: tx_data.data.clone().unwrap_or_default().into(),
             value: tx_data.value,
             ..Default::default()

@@ -6,44 +6,24 @@
 //! ERC721, and ERC1155 tokens.
 //!
 //! ERC6551 + the hypermap is not supported yet.
-//! 
+//!
 
-use crate::eth::{
-    Provider, 
-    EthError,
-    BlockNumberOrTag
-};
-use crate::signer::{
-    Signer, 
-    LocalSigner, 
-    TransactionData, 
-    SignerError, 
-    EncryptedSignerData
-};
-use crate::hypermap::{
-    namehash, 
-    valid_note, 
-    valid_fact, 
-    valid_name,
-};
+use crate::eth::{BlockNumberOrTag, EthError, Provider};
 use crate::hypermap;
+use crate::hypermap::{namehash, valid_fact, valid_name, valid_note};
 use crate::kiprintln;
+use crate::signer::{EncryptedSignerData, LocalSigner, Signer, SignerError, TransactionData};
 
-use thiserror::Error;
-use alloy_primitives::{
-    Address as EthAddress, 
-    TxHash, 
-    U256,
-    Bytes
-};
 use alloy::rpc::types::{
-    Block, BlockId, Filter, FilterBlockOption, FilterSet, Log, Transaction,
-    TransactionReceipt, request::TransactionRequest,
+    request::TransactionRequest, Block, BlockId, Filter, FilterBlockOption, FilterSet, Log,
+    Transaction, TransactionReceipt,
 };
 use alloy_primitives::TxKind;
-use std::str::FromStr;
+use alloy_primitives::{Address as EthAddress, Bytes, TxHash, U256};
 use alloy_sol_types::{sol, SolCall};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::str::FromStr;
+use thiserror::Error;
 sol! {
     interface IERC20 {
         function balanceOf(address who) external view returns (uint256);
@@ -101,19 +81,19 @@ pub enum WalletError {
 
     #[error("gas estimation error: {0}")]
     GasEstimationError(String),
-    
+
     #[error("insufficient funds: {0}")]
     InsufficientFunds(String),
-    
+
     #[error("network congestion: {0}")]
     NetworkCongestion(String),
-    
+
     #[error("transaction underpriced")]
     TransactionUnderpriced,
-    
+
     #[error("transaction nonce too low")]
     TransactionNonceTooLow,
-    
+
     #[error("permission denied: {0}")]
     PermissionDenied(String),
 }
@@ -133,14 +113,14 @@ impl Serialize for KeyStorage {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        
+
         match self {
             KeyStorage::Decrypted(signer) => {
                 let mut state = serializer.serialize_struct("KeyStorage", 2)?;
                 state.serialize_field("type", "Decrypted")?;
                 state.serialize_field("signer", signer)?;
                 state.end()
-            },
+            }
             KeyStorage::Encrypted(data) => {
                 let mut state = serializer.serialize_struct("KeyStorage", 2)?;
                 state.serialize_field("type", "Encrypted")?;
@@ -162,13 +142,13 @@ impl<'de> Deserialize<'de> for KeyStorage {
         enum KeyStorageData {
             #[serde(rename = "Decrypted")]
             Decrypted { signer: LocalSigner },
-            
+
             #[serde(rename = "Encrypted")]
             Encrypted { data: EncryptedSignerData },
         }
-        
+
         let data = KeyStorageData::deserialize(deserializer)?;
-        
+
         match data {
             KeyStorageData::Decrypted { signer } => Ok(KeyStorage::Decrypted(signer)),
             KeyStorageData::Encrypted { data } => Ok(KeyStorage::Encrypted(data)),
@@ -309,7 +289,7 @@ pub struct HypermapTxReceipt {
 fn call_view_function<T: SolCall>(
     contract: EthAddress,
     call: T,
-    provider: &Provider
+    provider: &Provider,
 ) -> Result<T::Return, WalletError> {
     let call_data = call.abi_encode();
     let tx = TransactionRequest {
@@ -317,68 +297,95 @@ fn call_view_function<T: SolCall>(
         input: call_data.into(),
         ..Default::default()
     };
-    
+
     let result = provider.call(tx, None)?;
-    
+
     if result.is_empty() {
-        return Err(WalletError::TransactionError("Empty result from call".into()));
+        return Err(WalletError::TransactionError(
+            "Empty result from call".into(),
+        ));
     }
-    
+
     match T::abi_decode_returns(&result, true) {
         Ok(decoded) => Ok(decoded),
-        Err(e) => Err(WalletError::TransactionError(
-            format!("Failed to decode result: {}", e)
-        ))
+        Err(e) => Err(WalletError::TransactionError(format!(
+            "Failed to decode result: {}",
+            e
+        ))),
     }
 }
 
 /// Calculate gas parameters based on network type
 fn calculate_gas_params(provider: &Provider, chain_id: u64) -> Result<(u128, u128), WalletError> {
-
     match chain_id {
-        1 => { // Mainnet: 50% buffer and 1.5 gwei priority fee
-            let latest_block = provider.get_block_by_number(BlockNumberOrTag::Latest, false)?
-                .ok_or_else(|| WalletError::TransactionError("Failed to get latest block".into()))?;
-            
-            let base_fee = latest_block.header.inner.base_fee_per_gas
+        1 => {
+            // Mainnet: 50% buffer and 1.5 gwei priority fee
+            let latest_block = provider
+                .get_block_by_number(BlockNumberOrTag::Latest, false)?
+                .ok_or_else(|| {
+                    WalletError::TransactionError("Failed to get latest block".into())
+                })?;
+
+            let base_fee = latest_block
+                .header
+                .inner
+                .base_fee_per_gas
                 .ok_or_else(|| WalletError::TransactionError("No base fee in block".into()))?
                 as u128;
-            
+
             Ok((base_fee + (base_fee / 2), 1_500_000_000u128))
-        },
-        8453 => { // Base
-            let latest_block = provider.get_block_by_number(BlockNumberOrTag::Latest, false)?
-                .ok_or_else(|| WalletError::TransactionError("Failed to get latest block".into()))?;
-            
-            let base_fee = latest_block.header.inner.base_fee_per_gas
+        }
+        8453 => {
+            // Base
+            let latest_block = provider
+                .get_block_by_number(BlockNumberOrTag::Latest, false)?
+                .ok_or_else(|| {
+                    WalletError::TransactionError("Failed to get latest block".into())
+                })?;
+
+            let base_fee = latest_block
+                .header
+                .inner
+                .base_fee_per_gas
                 .ok_or_else(|| WalletError::TransactionError("No base fee in block".into()))?
                 as u128;
-            
-            
+
             let max_fee = base_fee + (base_fee / 3);
-            
+
             let min_priority_fee = 100_000u128;
-            
+
             let max_priority_fee = max_fee / 2;
-            
-            let priority_fee = std::cmp::max(min_priority_fee, std::cmp::min(base_fee / 10, max_priority_fee));
+
+            let priority_fee = std::cmp::max(
+                min_priority_fee,
+                std::cmp::min(base_fee / 10, max_priority_fee),
+            );
 
             Ok((max_fee, priority_fee))
-        },
-        10 => { // Optimism: 25% buffer and 0.3 gwei priority fee
-            let latest_block = provider.get_block_by_number(BlockNumberOrTag::Latest, false)?
-                .ok_or_else(|| WalletError::TransactionError("Failed to get latest block".into()))?;
-            
-            let base_fee = latest_block.header.inner.base_fee_per_gas
+        }
+        10 => {
+            // Optimism: 25% buffer and 0.3 gwei priority fee
+            let latest_block = provider
+                .get_block_by_number(BlockNumberOrTag::Latest, false)?
+                .ok_or_else(|| {
+                    WalletError::TransactionError("Failed to get latest block".into())
+                })?;
+
+            let base_fee = latest_block
+                .header
+                .inner
+                .base_fee_per_gas
                 .ok_or_else(|| WalletError::TransactionError("No base fee in block".into()))?
                 as u128;
-            
+
             Ok((base_fee + (base_fee / 4), 300_000_000u128))
-        },
-        31337 | 1337 => { // Test networks
+        }
+        31337 | 1337 => {
+            // Test networks
             Ok((2_000_000_000, 100_000_000))
-        },
-        _ => { // Default: 30% buffer
+        }
+        _ => {
+            // Default: 30% buffer
             let base_fee = provider.get_gas_price()?.to::<u128>();
             let adjusted_fee = (base_fee * 130) / 100;
             Ok((adjusted_fee, adjusted_fee / 10))
@@ -394,20 +401,20 @@ fn prepare_and_send_tx<S: Signer, F>(
     provider: &Provider,
     signer: &S,
     gas_limit: Option<u64>,
-    format_receipt: F
+    format_receipt: F,
 ) -> Result<TxReceipt, WalletError>
-where F: FnOnce(TxHash) -> String {
-
+where
+    F: FnOnce(TxHash) -> String,
+{
     // Get the current nonce for the signer's address
     let signer_address = signer.address();
-    let nonce = provider.get_transaction_count(signer_address, None)?
+    let nonce = provider
+        .get_transaction_count(signer_address, None)?
         .to::<u64>();
-    
-    
+
     // Calculate gas parameters based on chain ID
     let (gas_price, priority_fee) = calculate_gas_params(provider, signer.chain_id())?;
-    
-    
+
     // Use provided gas limit or estimate it with 20% buffer
     let gas_limit = match gas_limit {
         Some(limit) => limit,
@@ -418,19 +425,19 @@ where F: FnOnce(TxHash) -> String {
                 input: call_data.clone().into(),
                 ..Default::default()
             };
-            
+
             match provider.estimate_gas(tx_req, None) {
                 Ok(gas) => {
                     let limit = (gas.to::<u64>() * 120) / 100; // Add 20% buffer
                     limit
-                },
+                }
                 Err(_) => {
                     100_000 // Default value if estimation fails
                 }
             }
         }
     };
-    
+
     // Prepare transaction data
     let tx_data = TransactionData {
         to,
@@ -442,15 +449,14 @@ where F: FnOnce(TxHash) -> String {
         max_priority_fee: Some(priority_fee),
         chain_id: signer.chain_id(),
     };
-    
-    
+
     // Sign and send transaction
     let signed_tx = signer.sign_transaction(&tx_data)?;
-    
+
     let tx_hash = provider.send_raw_transaction(signed_tx.into())?;
-    
+
     kiprintln!("PL:: Transaction sent with hash: {}", tx_hash);
-    
+
     // Return the receipt with formatted details
     Ok(TxReceipt {
         hash: tx_hash,
@@ -464,22 +470,25 @@ fn create_hypermap_tx<S: Signer, F>(
     hypermap_call_data: Bytes,
     description_fn: F,
     provider: Provider,
-    signer: &S
+    signer: &S,
 ) -> Result<HypermapTxReceipt, WalletError>
-where F: FnOnce() -> String {
+where
+    F: FnOnce() -> String,
+{
     // Get the parent TBA address and verify ownership
     let hypermap = provider.hypermap();
     let parent_hash_str = namehash(parent_entry);
     let (tba, owner, _) = hypermap.get_hash(&parent_hash_str)?;
-    
+
     // Check that the signer is the owner of the parent entry
     let signer_address = signer.address();
     if signer_address != owner {
-        return Err(WalletError::PermissionDenied(
-            format!("Signer address {} does not own the entry {}", signer_address, parent_entry)
-        ));
+        return Err(WalletError::PermissionDenied(format!(
+            "Signer address {} does not own the entry {}",
+            signer_address, parent_entry
+        )));
     }
-    
+
     // Create the ERC-6551 execute call
     let execute_call = IERC6551Account::executeCall {
         to: *hypermap.address(),
@@ -487,14 +496,14 @@ where F: FnOnce() -> String {
         data: hypermap_call_data,
         operation: 0, // CALL operation
     };
-    
+
     // Format receipt message
     let description = description_fn();
     let format_receipt = move |_| description.clone();
-    
+
     // For ERC-6551 operations we need a higher gas limit
     let gas_limit = Some(600_000);
-    
+
     // Send the transaction
     let receipt = prepare_and_send_tx(
         tba,
@@ -503,9 +512,9 @@ where F: FnOnce() -> String {
         &provider,
         signer,
         gas_limit,
-        format_receipt
+        format_receipt,
     )?;
-    
+
     // Convert to Hypermap receipt
     Ok(HypermapTxReceipt {
         hash: receipt.hash,
@@ -525,7 +534,7 @@ pub fn resolve_name(name: &str, chain_id: u64) -> Result<EthAddress, WalletError
             WalletError::NameResolutionError(format!("Invalid address format: {}", name))
         });
     }
-    
+
     // hardcoded to .hypr for now
     let formatted_name = if !name.contains('.') {
         format!("{}.hypr", name)
@@ -548,13 +557,14 @@ pub fn resolve_name(name: &str, chain_id: u64) -> Result<EthAddress, WalletError
 pub fn resolve_token_symbol(token: &str, chain_id: u64) -> Result<EthAddress, WalletError> {
     // If it's already an address, just parse it
     if token.starts_with("0x") && token.len() == 42 {
-        return EthAddress::from_str(token)
-            .map_err(|_| WalletError::NameResolutionError(format!("Invalid address format: {}", token)));
+        return EthAddress::from_str(token).map_err(|_| {
+            WalletError::NameResolutionError(format!("Invalid address format: {}", token))
+        });
     }
-    
+
     // Convert to uppercase for case-insensitive comparison
     let token_upper = token.to_uppercase();
-    
+
     // Map of known token addresses by chain ID and symbol
     match chain_id {
         1 => { // Ethereum Mainnet
@@ -668,7 +678,6 @@ pub fn resolve_token_symbol(token: &str, chain_id: u64) -> Result<EthAddress, Wa
     })
 }
 
-
 //
 // ETHEREUM FUNCTIONS
 //
@@ -682,19 +691,17 @@ pub fn send_eth<S: Signer>(
 ) -> Result<TxReceipt, WalletError> {
     // Resolve the name to an address
     let to_address = resolve_name(to, signer.chain_id())?;
-    
+
     // Standard gas limit for ETH transfer is always 21000
     let gas_limit = Some(21000);
-    
+
     // Format receipt message
     let amount_str = amount.to_string();
-    let format_receipt = move |_tx_hash| {
-        format!("Sent {} to {}", amount_str, to)
-    };
-    
+    let format_receipt = move |_tx_hash| format!("Sent {} to {}", amount_str, to);
+
     // For ETH transfers, we have no call data
     let empty_call_data = vec![];
-    
+
     // Use the helper function to prepare and send the transaction
     prepare_and_send_tx(
         to_address,
@@ -703,7 +710,7 @@ pub fn send_eth<S: Signer>(
         &provider,
         signer,
         gas_limit,
-        format_receipt
+        format_receipt,
     )
 }
 
@@ -720,40 +727,39 @@ pub fn get_eth_balance(
     let balance = provider.get_balance(address, None)?;
 
     // Return formatted amount
-    Ok(EthAmount {
-        wei_value: balance,
-    })
+    Ok(EthAmount { wei_value: balance })
 }
 
 /// Wait for a transaction to be confirmed
 pub fn wait_for_transaction(
-    tx_hash: TxHash, 
+    tx_hash: TxHash,
     provider: Provider,
     confirmations: u64,
-    timeout_secs: u64
+    timeout_secs: u64,
 ) -> Result<TransactionReceipt, WalletError> {
     let start_time = std::time::Instant::now();
     let timeout = std::time::Duration::from_secs(timeout_secs);
-    
+
     loop {
         // Check if we've exceeded the timeout
         if start_time.elapsed() > timeout {
-            return Err(WalletError::TransactionError(
-                format!("Transaction confirmation timeout after {} seconds", timeout_secs)
-            ));
+            return Err(WalletError::TransactionError(format!(
+                "Transaction confirmation timeout after {} seconds",
+                timeout_secs
+            )));
         }
-        
+
         // Try to get the receipt
         if let Ok(Some(receipt)) = provider.get_transaction_receipt(tx_hash) {
             // Check if we have enough confirmations
             let latest_block = provider.get_block_number()?;
             let receipt_block = receipt.block_number.unwrap_or(0) as u64;
-            
+
             if latest_block >= receipt_block + confirmations {
                 return Ok(receipt);
             }
         }
-        
+
         // Wait a bit before checking again
         std::thread::sleep(std::time::Duration::from_secs(2));
     }
@@ -768,22 +774,22 @@ pub fn wait_for_transaction(
 pub fn erc20_balance_of(
     token_address: &str,
     owner_address: &str,
-    provider: &Provider
+    provider: &Provider,
 ) -> Result<f64, WalletError> {
     // First try to resolve the token as a symbol
     let token = match resolve_token_symbol(token_address, provider.chain_id) {
         Ok(addr) => addr,
         Err(_) => resolve_name(token_address, provider.chain_id)?, // Fall back to regular name resolution
     };
-    
+
     let owner = resolve_name(owner_address, provider.chain_id)?;
-    
+
     let call = IERC20::balanceOfCall { who: owner };
     let balance = call_view_function(token, call, provider)?;
-    
+
     let decimals = erc20_decimals(token_address, provider)?;
     let balance_float = balance._0.to::<u128>() as f64 / 10f64.powi(decimals as i32);
-    
+
     Ok(balance_float)
 }
 
@@ -793,7 +799,7 @@ pub fn erc20_decimals(token_address: &str, provider: &Provider) -> Result<u8, Wa
         Ok(addr) => addr,
         Err(_) => resolve_name(token_address, provider.chain_id)?,
     };
-    
+
     let call = IERC20::decimalsCall {};
     let decimals = call_view_function(token, call, provider)?;
     Ok(decimals._0)
@@ -805,7 +811,7 @@ pub fn erc20_symbol(token_address: &str, provider: &Provider) -> Result<String, 
         Ok(addr) => addr,
         Err(_) => resolve_name(token_address, provider.chain_id)?,
     };
-    
+
     let call = IERC20::symbolCall {};
     let symbol = call_view_function(token, call, provider)?;
     Ok(symbol._0)
@@ -817,7 +823,7 @@ pub fn erc20_name(token_address: &str, provider: &Provider) -> Result<String, Wa
         Ok(addr) => addr,
         Err(_) => resolve_name(token_address, provider.chain_id)?,
     };
-    
+
     let call = IERC20::nameCall {};
     let name = call_view_function(token, call, provider)?;
     Ok(name._0)
@@ -829,7 +835,7 @@ pub fn erc20_total_supply(token_address: &str, provider: &Provider) -> Result<U2
         Ok(addr) => addr,
         Err(_) => resolve_name(token_address, provider.chain_id)?,
     };
-    
+
     let call = IERC20::totalSupplyCall {};
     let total_supply = call_view_function(token, call, provider)?;
     Ok(total_supply._0)
@@ -840,16 +846,16 @@ pub fn erc20_allowance(
     token_address: &str,
     owner_address: &str,
     spender_address: &str,
-    provider: &Provider
+    provider: &Provider,
 ) -> Result<U256, WalletError> {
     let token = match resolve_token_symbol(token_address, provider.chain_id) {
         Ok(addr) => addr,
         Err(_) => resolve_name(token_address, provider.chain_id)?,
     };
-    
+
     let owner = resolve_name(owner_address, provider.chain_id)?;
     let spender = resolve_name(spender_address, provider.chain_id)?;
-    
+
     let call = IERC20::allowanceCall { owner, spender };
     let allowance = call_view_function(token, call, provider)?;
     Ok(allowance._0)
@@ -861,47 +867,54 @@ pub fn erc20_transfer<S: Signer>(
     to_address: &str,
     amount: U256,
     provider: &Provider,
-    signer: &S
+    signer: &S,
 ) -> Result<TxReceipt, WalletError> {
-    kiprintln!("PL:: Transferring {} tokens to {} on {}", amount, to_address, provider.chain_id);
+    kiprintln!(
+        "PL:: Transferring {} tokens to {} on {}",
+        amount,
+        to_address,
+        provider.chain_id
+    );
 
     // Resolve token address (could be a symbol like "USDC")
     let token = match resolve_token_symbol(token_address, provider.chain_id) {
         Ok(addr) => addr,
         Err(_) => resolve_name(token_address, provider.chain_id)?,
     };
-    
+
     kiprintln!("PL:: Resolved token address: {}", token);
-    
+
     // Resolve recipient address
     let to = resolve_name(to_address, provider.chain_id)?;
     kiprintln!("PL:: Resolved recipient address: {}", to);
-    
+
     // Create the call
     let call = IERC20::transferCall { to, value: amount };
     let call_data = call.abi_encode();
-    
+
     // Get token details for receipt formatting
-    let token_symbol = erc20_symbol(token_address, provider).unwrap_or_else(|_| "tokens".to_string());
+    let token_symbol =
+        erc20_symbol(token_address, provider).unwrap_or_else(|_| "tokens".to_string());
     let token_decimals = erc20_decimals(token_address, provider).unwrap_or(18);
-    
-    
+
     // Format receipt message
     let format_receipt = move |_| {
         let amount_float = amount.to::<u128>() as f64 / 10f64.powi(token_decimals as i32);
-        format!("Transferred {:.6} {} to {}", amount_float, token_symbol, to_address)
+        format!(
+            "Transferred {:.6} {} to {}",
+            amount_float, token_symbol, to_address
+        )
     };
-    
-    
+
     // Prepare and send transaction
     prepare_and_send_tx(
-        token, 
-        call_data, 
-        U256::ZERO, 
+        token,
+        call_data,
+        U256::ZERO,
         provider,
         signer,
         Some(100_000), // Default gas limit for ERC20 transfers
-        format_receipt
+        format_receipt,
     )
 }
 
@@ -911,26 +924,33 @@ pub fn erc20_approve<S: Signer>(
     spender_address: &str,
     amount: U256,
     provider: &Provider,
-    signer: &S
+    signer: &S,
 ) -> Result<TxReceipt, WalletError> {
     // Resolve addresses
     let token = resolve_name(token_address, provider.chain_id)?;
     let spender = resolve_name(spender_address, provider.chain_id)?;
-    
+
     // Create the call
-    let call = IERC20::approveCall { spender, value: amount };
+    let call = IERC20::approveCall {
+        spender,
+        value: amount,
+    };
     let call_data = call.abi_encode();
-    
+
     // Get token details for receipt formatting
-    let token_symbol = erc20_symbol(token_address, provider).unwrap_or_else(|_| "tokens".to_string());
+    let token_symbol =
+        erc20_symbol(token_address, provider).unwrap_or_else(|_| "tokens".to_string());
     let token_decimals = erc20_decimals(token_address, provider).unwrap_or(18);
-    
+
     // Format receipt message
     let format_receipt = move |_| {
         let amount_float = amount.to::<u128>() as f64 / 10f64.powi(token_decimals as i32);
-        format!("Approved {:.6} {} to be spent by {}", amount_float, token_symbol, spender_address)
+        format!(
+            "Approved {:.6} {} to be spent by {}",
+            amount_float, token_symbol, spender_address
+        )
     };
-    
+
     // Prepare and send transaction
     prepare_and_send_tx(
         token,
@@ -939,7 +959,7 @@ pub fn erc20_approve<S: Signer>(
         provider,
         signer,
         Some(60_000), // Default gas limit for approvals
-        format_receipt
+        format_receipt,
     )
 }
 
@@ -950,28 +970,35 @@ pub fn erc20_transfer_from<S: Signer>(
     to_address: &str,
     amount: U256,
     provider: &Provider,
-    signer: &S
+    signer: &S,
 ) -> Result<TxReceipt, WalletError> {
     // Resolve addresses
     let token = resolve_name(token_address, provider.chain_id)?;
     let from = resolve_name(from_address, provider.chain_id)?;
     let to = resolve_name(to_address, provider.chain_id)?;
-    
+
     // Create the call
-    let call = IERC20::transferFromCall { from, to, value: amount };
+    let call = IERC20::transferFromCall {
+        from,
+        to,
+        value: amount,
+    };
     let call_data = call.abi_encode();
-    
+
     // Get token details for receipt formatting
-    let token_symbol = erc20_symbol(token_address, provider).unwrap_or_else(|_| "tokens".to_string());
+    let token_symbol =
+        erc20_symbol(token_address, provider).unwrap_or_else(|_| "tokens".to_string());
     let token_decimals = erc20_decimals(token_address, provider).unwrap_or(18);
-    
+
     // Format receipt message
     let format_receipt = move |_| {
         let amount_float = amount.to::<u128>() as f64 / 10f64.powi(token_decimals as i32);
-        format!("Transferred {:.6} {} from {} to {}", 
-            amount_float, token_symbol, from_address, to_address)
+        format!(
+            "Transferred {:.6} {} from {} to {}",
+            amount_float, token_symbol, from_address, to_address
+        )
     };
-    
+
     // Prepare and send transaction
     prepare_and_send_tx(
         token,
@@ -980,7 +1007,7 @@ pub fn erc20_transfer_from<S: Signer>(
         provider,
         signer,
         Some(100_000), // Default gas limit
-        format_receipt
+        format_receipt,
     )
 }
 
@@ -992,11 +1019,11 @@ pub fn erc20_transfer_from<S: Signer>(
 pub fn erc721_balance_of(
     token_address: &str,
     owner_address: &str,
-    provider: &Provider
+    provider: &Provider,
 ) -> Result<U256, WalletError> {
     let token = resolve_name(token_address, provider.chain_id)?;
     let owner = resolve_name(owner_address, provider.chain_id)?;
-    
+
     let call = IERC721::balanceOfCall { owner };
     let balance = call_view_function(token, call, provider)?;
     Ok(balance._0)
@@ -1006,7 +1033,7 @@ pub fn erc721_balance_of(
 pub fn erc721_owner_of(
     token_address: &str,
     token_id: U256,
-    provider: &Provider
+    provider: &Provider,
 ) -> Result<EthAddress, WalletError> {
     let token = resolve_name(token_address, provider.chain_id)?;
     let call = IERC721::ownerOfCall { tokenId: token_id };
@@ -1019,12 +1046,12 @@ pub fn erc721_is_approved_for_all(
     token_address: &str,
     owner_address: &str,
     operator_address: &str,
-    provider: &Provider
+    provider: &Provider,
 ) -> Result<bool, WalletError> {
     let token = resolve_name(token_address, provider.chain_id)?;
     let owner = resolve_name(owner_address, provider.chain_id)?;
     let operator = resolve_name(operator_address, provider.chain_id)?;
-    
+
     let call = IERC721::isApprovedForAllCall { owner, operator };
     let is_approved = call_view_function(token, call, provider)?;
     Ok(is_approved._0)
@@ -1037,22 +1064,29 @@ pub fn erc721_safe_transfer_from<S: Signer>(
     to_address: &str,
     token_id: U256,
     provider: &Provider,
-    signer: &S
+    signer: &S,
 ) -> Result<TxReceipt, WalletError> {
     // Resolve addresses
     let token = resolve_name(token_address, provider.chain_id)?;
     let from = resolve_name(from_address, provider.chain_id)?;
     let to = resolve_name(to_address, provider.chain_id)?;
-    
+
     // Create the call
-    let call = IERC721::safeTransferFromCall { from, to, tokenId: token_id };
+    let call = IERC721::safeTransferFromCall {
+        from,
+        to,
+        tokenId: token_id,
+    };
     let call_data = call.abi_encode();
-    
+
     // Format receipt message
     let format_receipt = move |_| {
-        format!("Safely transferred NFT ID {} from {} to {}", token_id, from_address, to_address)
+        format!(
+            "Safely transferred NFT ID {} from {} to {}",
+            token_id, from_address, to_address
+        )
     };
-    
+
     // Prepare and send transaction
     prepare_and_send_tx(
         token,
@@ -1061,7 +1095,7 @@ pub fn erc721_safe_transfer_from<S: Signer>(
         provider,
         signer,
         Some(200_000), // Higher gas limit for NFT transfers
-        format_receipt
+        format_receipt,
     )
 }
 
@@ -1071,26 +1105,30 @@ pub fn erc721_set_approval_for_all<S: Signer>(
     operator_address: &str,
     approved: bool,
     provider: &Provider,
-    signer: &S
+    signer: &S,
 ) -> Result<TxReceipt, WalletError> {
     // Resolve addresses
     let token = resolve_name(token_address, provider.chain_id)?;
     let operator = resolve_name(operator_address, provider.chain_id)?;
-    
+
     // Create the call
     let call = IERC721::setApprovalForAllCall { operator, approved };
     let call_data = call.abi_encode();
-    
+
     // Format receipt message
     let format_receipt = move |_| {
         format!(
-            "{} operator {} to manage all of your NFTs in contract {}", 
-            if approved { "Approved" } else { "Revoked approval for" },
+            "{} operator {} to manage all of your NFTs in contract {}",
+            if approved {
+                "Approved"
+            } else {
+                "Revoked approval for"
+            },
             operator_address,
             token_address
         )
     };
-    
+
     // Prepare and send transaction
     prepare_and_send_tx(
         token,
@@ -1099,7 +1137,7 @@ pub fn erc721_set_approval_for_all<S: Signer>(
         provider,
         signer,
         Some(60_000), // Default gas limit for approvals
-        format_receipt
+        format_receipt,
     )
 }
 
@@ -1112,12 +1150,15 @@ pub fn erc1155_balance_of(
     token_address: &str,
     account_address: &str,
     token_id: U256,
-    provider: &Provider
+    provider: &Provider,
 ) -> Result<U256, WalletError> {
     let token = resolve_name(token_address, provider.chain_id)?;
     let account = resolve_name(account_address, provider.chain_id)?;
-    
-    let call = IERC1155::balanceOfCall { account, id: token_id };
+
+    let call = IERC1155::balanceOfCall {
+        account,
+        id: token_id,
+    };
     let balance = call_view_function(token, call, provider)?;
     Ok(balance._0)
 }
@@ -1127,25 +1168,28 @@ pub fn erc1155_balance_of_batch(
     token_address: &str,
     account_addresses: Vec<&str>,
     token_ids: Vec<U256>,
-    provider: &Provider
+    provider: &Provider,
 ) -> Result<Vec<U256>, WalletError> {
     // Check that arrays are same length
     if account_addresses.len() != token_ids.len() {
         return Err(WalletError::TransactionError(
-            "Arrays of accounts and token IDs must have the same length".into()
+            "Arrays of accounts and token IDs must have the same length".into(),
         ));
     }
-    
+
     // Resolve token address
     let token = resolve_name(token_address, provider.chain_id)?;
-    
+
     // Resolve all account addresses
     let mut accounts = Vec::with_capacity(account_addresses.len());
     for addr in account_addresses {
         accounts.push(resolve_name(addr, provider.chain_id)?);
     }
-    
-    let call = IERC1155::balanceOfBatchCall { accounts, ids: token_ids };
+
+    let call = IERC1155::balanceOfBatchCall {
+        accounts,
+        ids: token_ids,
+    };
     let balances = call_view_function(token, call, provider)?;
     Ok(balances._0)
 }
@@ -1155,12 +1199,12 @@ pub fn erc1155_is_approved_for_all(
     token_address: &str,
     account_address: &str,
     operator_address: &str,
-    provider: &Provider
+    provider: &Provider,
 ) -> Result<bool, WalletError> {
     let token = resolve_name(token_address, provider.chain_id)?;
     let account = resolve_name(account_address, provider.chain_id)?;
     let operator = resolve_name(operator_address, provider.chain_id)?;
-    
+
     let call = IERC1155::isApprovedForAllCall { account, operator };
     let is_approved = call_view_function(token, call, provider)?;
     Ok(is_approved._0)
@@ -1172,26 +1216,30 @@ pub fn erc1155_set_approval_for_all<S: Signer>(
     operator_address: &str,
     approved: bool,
     provider: &Provider,
-    signer: &S
+    signer: &S,
 ) -> Result<TxReceipt, WalletError> {
     // Resolve addresses
     let token = resolve_name(token_address, provider.chain_id)?;
     let operator = resolve_name(operator_address, provider.chain_id)?;
-    
+
     // Create the call
     let call = IERC1155::setApprovalForAllCall { operator, approved };
     let call_data = call.abi_encode();
-    
+
     // Format receipt message
     let format_receipt = move |_| {
         format!(
-            "{} operator {} to manage all of your ERC1155 tokens in contract {}", 
-            if approved { "Approved" } else { "Revoked approval for" },
+            "{} operator {} to manage all of your ERC1155 tokens in contract {}",
+            if approved {
+                "Approved"
+            } else {
+                "Revoked approval for"
+            },
             operator_address,
             token_address
         )
     };
-    
+
     // Prepare and send transaction
     prepare_and_send_tx(
         token,
@@ -1200,7 +1248,7 @@ pub fn erc1155_set_approval_for_all<S: Signer>(
         provider,
         signer,
         Some(60_000), // Default gas limit for approvals
-        format_receipt
+        format_receipt,
     )
 }
 
@@ -1213,31 +1261,31 @@ pub fn erc1155_safe_transfer_from<S: Signer>(
     amount: U256,
     data: Vec<u8>,
     provider: &Provider,
-    signer: &S
+    signer: &S,
 ) -> Result<TxReceipt, WalletError> {
     // Resolve addresses
     let token = resolve_name(token_address, provider.chain_id)?;
     let from = resolve_name(from_address, provider.chain_id)?;
     let to = resolve_name(to_address, provider.chain_id)?;
-    
+
     // Create the call
-    let call = IERC1155::safeTransferFromCall { 
-        from, 
-        to, 
+    let call = IERC1155::safeTransferFromCall {
+        from,
+        to,
         id: token_id,
         amount,
-        data: Bytes::from(data)
+        data: Bytes::from(data),
     };
     let call_data = call.abi_encode();
-    
+
     // Format receipt message
     let format_receipt = move |_| {
         format!(
-            "Transferred {} of token ID {} from {} to {}", 
+            "Transferred {} of token ID {} from {} to {}",
             amount, token_id, from_address, to_address
         )
     };
-    
+
     // Prepare and send transaction
     prepare_and_send_tx(
         token,
@@ -1246,7 +1294,7 @@ pub fn erc1155_safe_transfer_from<S: Signer>(
         provider,
         signer,
         Some(150_000), // Default gas limit for ERC1155 transfers
-        format_receipt
+        format_receipt,
     )
 }
 
@@ -1259,43 +1307,43 @@ pub fn erc1155_safe_batch_transfer_from<S: Signer>(
     amounts: Vec<U256>,
     data: Vec<u8>,
     provider: &Provider,
-    signer: &S
+    signer: &S,
 ) -> Result<TxReceipt, WalletError> {
     // Check that arrays are same length
     if token_ids.len() != amounts.len() {
         return Err(WalletError::TransactionError(
-            "Arrays of token IDs and amounts must have the same length".into()
+            "Arrays of token IDs and amounts must have the same length".into(),
         ));
     }
-    
+
     // Resolve addresses
     let token = resolve_name(token_address, provider.chain_id)?;
     let from = resolve_name(from_address, provider.chain_id)?;
     let to = resolve_name(to_address, provider.chain_id)?;
-    
+
     // Create the call
-    let call = IERC1155::safeBatchTransferFromCall { 
-        from, 
-        to, 
+    let call = IERC1155::safeBatchTransferFromCall {
+        from,
+        to,
         ids: token_ids.clone(),
         amounts: amounts.clone(),
-        data: Bytes::from(data)
+        data: Bytes::from(data),
     };
     let call_data = call.abi_encode();
-    
+
     // For batch transfers, gas estimation is tricky - use a formula that scales with token count
     let token_count = token_ids.len();
     // Base gas (200,000) + extra per token (50,000 each)
     let default_gas = Some(200_000 + (token_count as u64 * 50_000));
-    
+
     // Format receipt message
     let format_receipt = move |_| {
         format!(
-            "Batch transferred {} token types from {} to {}", 
+            "Batch transferred {} token types from {} to {}",
             token_count, from_address, to_address
         )
     };
-    
+
     // Prepare and send transaction
     prepare_and_send_tx(
         token,
@@ -1304,7 +1352,7 @@ pub fn erc1155_safe_batch_transfer_from<S: Signer>(
         provider,
         signer,
         default_gas,
-        format_receipt
+        format_receipt,
     )
 }
 
@@ -1332,14 +1380,14 @@ pub fn create_note<S: Signer>(
         note: Bytes::from(note_key.as_bytes().to_vec()),
         data: Bytes::from(data),
     };
-    
+
     // Create the hypermap transaction
     create_hypermap_tx(
         parent_entry,
         Bytes::from(note_function.abi_encode()),
         || format!("Created note '{}' on '{}'", note_key, parent_entry),
         provider,
-        signer
+        signer,
     )
 }
 
@@ -1363,14 +1411,14 @@ pub fn create_fact<S: Signer>(
         fact: Bytes::from(fact_key.as_bytes().to_vec()),
         data: Bytes::from(data),
     };
-    
+
     // Create the hypermap transaction
     create_hypermap_tx(
         parent_entry,
         Bytes::from(fact_function.abi_encode()),
         || format!("Created fact '{}' on '{}'", fact_key, parent_entry),
         provider,
-        signer
+        signer,
     )
 }
 
@@ -1385,9 +1433,10 @@ pub fn mint_entry<S: Signer>(
 ) -> Result<HypermapTxReceipt, WalletError> {
     // Verify the label is valid
     if !valid_name(label) {
-        return Err(WalletError::NameResolutionError(
-            format!("Invalid label '{}'. Must contain only lowercase letters, numbers, and hyphens", label)
-        ));
+        return Err(WalletError::NameResolutionError(format!(
+            "Invalid label '{}'. Must contain only lowercase letters, numbers, and hyphens",
+            label
+        )));
     }
 
     // Resolve addresses
@@ -1399,17 +1448,17 @@ pub fn mint_entry<S: Signer>(
         who: recipient_address,
         label: Bytes::from(label.as_bytes().to_vec()),
         initialization: Bytes::default(), // No initialization data
-        erc721Data: Bytes::default(),    // No ERC721 data
+        erc721Data: Bytes::default(),     // No ERC721 data
         implementation: implementation_address,
     };
-    
+
     // Create the hypermap transaction
     create_hypermap_tx(
         parent_entry,
         Bytes::from(mint_function.abi_encode()),
         || format!("Minted new entry '{}' under '{}'", label, parent_entry),
         provider,
-        signer
+        signer,
     )
 }
 
@@ -1427,18 +1476,16 @@ pub fn set_gene<S: Signer>(
     let gene_function = hypermap::contract::geneCall {
         _gene: gene_address,
     };
-    
+
     // Create the hypermap transaction
     create_hypermap_tx(
         entry,
         Bytes::from(gene_function.abi_encode()),
         || format!("Set gene for '{}' to '{}'", entry, gene_implementation),
         provider,
-        signer
+        signer,
     )
 }
-
-
 
 // TODO: TEST
 //
@@ -1475,10 +1522,10 @@ pub enum TransactionDirection {
 pub fn get_address_transactions(
     address_or_name: &str,
     provider: &Provider,
-    max_blocks_back: Option<u64>
+    max_blocks_back: Option<u64>,
 ) -> Result<Vec<TransactionDetails>, WalletError> {
     let target_address = resolve_name(address_or_name, provider.chain_id)?;
-    
+
     // Get block range
     let latest_block = provider.get_block_number()?;
     let blocks_back = max_blocks_back.unwrap_or(1000);
@@ -1487,7 +1534,7 @@ pub fn get_address_transactions(
     } else {
         0
     };
-    
+
     // Create filter to find logs involving our address
     let filter = Filter {
         block_option: FilterBlockOption::Range {
@@ -1497,11 +1544,15 @@ pub fn get_address_transactions(
         address: FilterSet::from(vec![target_address]),
         topics: Default::default(),
     };
-    
+
     // Get logs matching our filter
     let logs = provider.get_logs(&filter)?;
-    kiprintln!("Found {} logs involving address {}", logs.len(), target_address);
-    
+    kiprintln!(
+        "Found {} logs involving address {}",
+        logs.len(),
+        target_address
+    );
+
     // Extract unique transaction hashes
     let mut tx_hashes = Vec::new();
     for log in logs {
@@ -1511,10 +1562,10 @@ pub fn get_address_transactions(
             }
         }
     }
-    
+
     // Create transaction details objects for each tx hash
     let mut transactions = Vec::new();
-    
+
     for tx_hash in tx_hashes {
         // For each transaction, create a basic TransactionDetails object
         // with just the transaction hash and basic direction
@@ -1522,7 +1573,9 @@ pub fn get_address_transactions(
             hash: tx_hash,
             from: EthAddress::default(), // We'll update this if we can get the transaction
             to: None,
-            value: EthAmount { wei_value: U256::ZERO },
+            value: EthAmount {
+                wei_value: U256::ZERO,
+            },
             block_number: None,
             timestamp: None,
             gas_used: None,
@@ -1530,12 +1583,12 @@ pub fn get_address_transactions(
             success: None,
             direction: TransactionDirection::Incoming, // Default, will update if needed
         };
-        
+
         // Try to get transaction receipt for more details
         if let Ok(Some(receipt)) = provider.get_transaction_receipt(tx_hash) {
             // Update from receipt fields that we know exist
             tx_detail.block_number = receipt.block_number;
-            
+
             // Get transaction success status if available
             let status = receipt.status();
             if status {
@@ -1543,42 +1596,42 @@ pub fn get_address_transactions(
             } else {
                 tx_detail.success = Some(false);
             }
-            
+
             // Try to get original transaction for more details
             if let Ok(Some(tx)) = provider.get_transaction_by_hash(tx_hash) {
                 // Update from transaction fields
                 tx_detail.from = tx.from;
-                
+
                 // Set direction based on compared addresses
                 if tx.from == target_address {
                     tx_detail.direction = TransactionDirection::Outgoing;
                 } else {
                     tx_detail.direction = TransactionDirection::Incoming;
                 }
-                
+
                 // Try to get block timestamp if we have block number
                 if let Some(block_num) = tx_detail.block_number {
-                    if let Ok(Some(block)) = provider.get_block_by_number(BlockNumberOrTag::Number(block_num), false) {
+                    if let Ok(Some(block)) =
+                        provider.get_block_by_number(BlockNumberOrTag::Number(block_num), false)
+                    {
                         // Block header timestamp is a u64, not an Option
                         tx_detail.timestamp = Some(block.header.timestamp);
                     }
                 }
             }
         }
-        
+
         transactions.push(tx_detail);
     }
-    
+
     // Sort by block number (descending)
-    transactions.sort_by(|a, b| {
-        match (b.block_number, a.block_number) {
-            (Some(b_num), Some(a_num)) => b_num.cmp(&a_num),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
-        }
+    transactions.sort_by(|a, b| match (b.block_number, a.block_number) {
+        (Some(b_num), Some(a_num)) => b_num.cmp(&a_num),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
     });
-    
+
     Ok(transactions)
 }
 
@@ -1590,34 +1643,38 @@ pub fn format_transaction_details(tx: &TransactionDetails) -> String {
         TransactionDirection::Outgoing => "→",
         TransactionDirection::SelfTransfer => "↻",
     };
-    
+
     // Transaction status
     let status = match tx.success {
         Some(true) => "Succeeded",
         Some(false) => "Failed",
         None => "Unknown",
     };
-    
+
     // Format value
     let value = tx.value.to_string();
-    
+
     // Format timestamp without external dependencies
     let timestamp = match tx.timestamp {
         Some(ts) => format_timestamp(ts),
         None => "Pending".to_string(),
     };
-    
+
     // Format to and from addresses
-    let from_addr = format!("{:.8}...{}", 
+    let from_addr = format!(
+        "{:.8}...{}",
         tx.from.to_string()[0..10].to_string(),
-        tx.from.to_string()[34..].to_string());
-    
-    let to_addr = tx.to.map_or("Contract Creation".to_string(), |addr| 
-        format!("{:.8}...{}", 
-            addr.to_string()[0..10].to_string(),
-            addr.to_string()[34..].to_string())
+        tx.from.to_string()[34..].to_string()
     );
-    
+
+    let to_addr = tx.to.map_or("Contract Creation".to_string(), |addr| {
+        format!(
+            "{:.8}...{}",
+            addr.to_string()[0..10].to_string(),
+            addr.to_string()[34..].to_string()
+        )
+    });
+
     // Format final output
     format!(
         "TX: {} [{}]\n   {} {} {}\n   Block: {}, Status: {}, Value: {}, Time: {}",
@@ -1626,7 +1683,8 @@ pub fn format_transaction_details(tx: &TransactionDetails) -> String {
         from_addr,
         direction_symbol,
         to_addr,
-        tx.block_number.map_or("Pending".to_string(), |b| b.to_string()),
+        tx.block_number
+            .map_or("Pending".to_string(), |b| b.to_string()),
         status,
         value,
         timestamp
@@ -1636,22 +1694,22 @@ pub fn format_transaction_details(tx: &TransactionDetails) -> String {
 fn format_timestamp(timestamp: u64) -> String {
     // Simple timestamp formatting
     // We'll use a very basic approach that doesn't rely on date/time libraries
-    
+
     // Convert to seconds, minutes, hours, days since epoch
     let secs = timestamp % 60;
     let mins = (timestamp / 60) % 60;
     let hours = (timestamp / 3600) % 24;
     let days_since_epoch = timestamp / 86400;
-    
+
     // Very rough estimation - doesn't account for leap years properly
     let years_since_epoch = days_since_epoch / 365;
     let days_this_year = days_since_epoch % 365;
-    
+
     // Rough month calculation
     let month_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     let mut month = 0;
     let mut day = days_this_year as u32;
-    
+
     // Adjust for leap years in a very rough way
     let is_leap_year = (1970 + years_since_epoch as u32) % 4 == 0;
     let month_days = if is_leap_year {
@@ -1661,7 +1719,7 @@ fn format_timestamp(timestamp: u64) -> String {
     } else {
         month_days.to_vec()
     };
-    
+
     // Find month and day
     for (i, &days_in_month) in month_days.iter().enumerate() {
         if day < days_in_month {
@@ -1670,11 +1728,11 @@ fn format_timestamp(timestamp: u64) -> String {
         }
         day -= days_in_month;
     }
-    
+
     // Adjust to 1-based
     day += 1;
     month += 1;
-    
+
     // Format the date
     format!(
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
@@ -1704,25 +1762,25 @@ pub struct TokenDetails {
 pub fn get_token_details(
     token_address: &str,
     wallet_address: &str,
-    provider: &Provider
+    provider: &Provider,
 ) -> Result<TokenDetails, WalletError> {
     // First resolve the token address (could be a symbol or address)
     let token = match resolve_token_symbol(token_address, provider.chain_id) {
         Ok(addr) => addr,
         Err(_) => resolve_name(token_address, provider.chain_id)?,
     };
-    
+
     // Get basic token information
     let token_str = token.to_string();
     let symbol = erc20_symbol(token_address, provider)?;
     let name = erc20_name(token_address, provider)?;
     let decimals = erc20_decimals(token_address, provider)?;
-    
+
     // Get total supply
     let total_supply = erc20_total_supply(token_address, provider)?;
     let total_supply_float = total_supply.to::<u128>() as f64 / 10f64.powi(decimals as i32);
     let formatted_total_supply = format!("{:.2}", total_supply_float);
-    
+
     // Get balance if wallet address is provided
     let (balance, formatted_balance) = if !wallet_address.is_empty() {
         let balance = erc20_balance_of(token_address, wallet_address, provider)?;
@@ -1730,7 +1788,7 @@ pub fn get_token_details(
     } else {
         ("0".to_string(), "0.000000".to_string())
     };
-    
+
     Ok(TokenDetails {
         address: token_str,
         symbol,
