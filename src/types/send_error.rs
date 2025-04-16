@@ -1,7 +1,7 @@
 use crate::{Address, LazyLoadBlob, Message, _wit_message_to_message};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SendError {
     pub kind: SendErrorKind,
     pub target: Address,
