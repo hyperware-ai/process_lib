@@ -77,7 +77,7 @@ pub use types::{
     address::{Address, AddressParseError},
     capability::Capability,
     lazy_load_blob::LazyLoadBlob,
-    message::{Message, _wit_message_to_message},
+    message::{BuildError, Message, _wit_message_to_message},
     on_exit::OnExit,
     package_id::PackageId,
     process_id::{ProcessId, ProcessIdParseError},
