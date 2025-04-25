@@ -1556,6 +1556,7 @@ dependencies = [
  "alloy-sol-macro",
  "alloy-sol-types",
  "anyhow",
+ "base64",
  "bincode",
  "color-eyre",
  "http",
