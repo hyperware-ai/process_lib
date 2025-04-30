@@ -11,15 +11,14 @@
 use crate::eth::{BlockNumberOrTag, EthError, Provider};
 use crate::hypermap;
 use crate::hypermap::{namehash, valid_fact, valid_name, valid_note};
-use crate::signer::{EncryptedSignerData, LocalSigner, Signer, SignerError, TransactionData};
 use crate::println as kiprintln;
+use crate::signer::{EncryptedSignerData, LocalSigner, Signer, SignerError, TransactionData};
 
 use alloy::rpc::types::{
-    request::TransactionRequest, Filter, FilterBlockOption, FilterSet,
-    TransactionReceipt,
+    request::TransactionRequest, Filter, FilterBlockOption, FilterSet, TransactionReceipt,
 };
 use alloy_primitives::TxKind;
-use alloy_primitives::{Address as EthAddress, Bytes, TxHash, U256, B256};
+use alloy_primitives::{Address as EthAddress, Bytes, TxHash, B256, U256};
 use alloy_sol_types::{sol, SolCall};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -1499,14 +1498,14 @@ pub fn set_gene<S: Signer>(
 /// (e.g., via Hypermap notes like ~access-list) rather than the direct owner of the underlying NFT.
 /// The TBA's own `execute` implementation is responsible for verifying the signer's authorization.
 pub fn execute_via_tba_with_signer<S: Signer>(
-    tba_address_or_name: &str,    // Address or name of the TBA to execute through
-    hot_wallet_signer: &S,      // The signer (e.g., hot wallet) authorized to call execute
+    tba_address_or_name: &str, // Address or name of the TBA to execute through
+    hot_wallet_signer: &S,     // The signer (e.g., hot wallet) authorized to call execute
     target_address_or_name: &str, // Address or name of the contract to call via the TBA
-    call_data: Vec<u8>,         // ABI-encoded data for the call to the target contract
-    value: U256,                // ETH value to send with the call to the target contract
+    call_data: Vec<u8>,        // ABI-encoded data for the call to the target contract
+    value: U256,               // ETH value to send with the call to the target contract
     provider: &Provider,
-    operation: Option<u8>,      // ERC-6551 operation type (0=CALL, 1=DELEGATECALL, etc.). Defaults to 0.
-    gas_limit: Option<u64>,     // Optional gas limit override. Defaults to 500,000.
+    operation: Option<u8>, // ERC-6551 operation type (0=CALL, 1=DELEGATECALL, etc.). Defaults to 0.
+    gas_limit: Option<u64>, // Optional gas limit override. Defaults to 500,000.
 ) -> Result<TxReceipt, WalletError> {
     // Resolve addresses
     let tba = resolve_name(tba_address_or_name, provider.chain_id)?;
@@ -1522,7 +1521,6 @@ pub fn execute_via_tba_with_signer<S: Signer>(
         value
     );
 
-
     // Create the outer execute call directed at the TBA
     let execute_call = IERC6551Account::executeCall {
         to: target,
@@ -1536,7 +1534,9 @@ pub fn execute_via_tba_with_signer<S: Signer>(
     let format_receipt = move |_| {
         format!(
             "Execute via TBA {} to target {} (Signer: {})",
-            tba_address_or_name, target_address_or_name, hot_wallet_signer.address()
+            tba_address_or_name,
+            target_address_or_name,
+            hot_wallet_signer.address()
         )
     };
 
@@ -1544,16 +1544,15 @@ pub fn execute_via_tba_with_signer<S: Signer>(
     // The `value` field in `prepare_and_send_tx` is U256::ZERO because the ETH transfer
     // happens *inside* the TBA's execution context, funded by the TBA itself.
     prepare_and_send_tx(
-        tba,                    // Transaction is sent TO the TBA address
-        execute_call_data,      // Data is the ABI-encoded `execute` call
-        U256::ZERO,             // Outer transaction sends no ETH directly to the TBA
+        tba,               // Transaction is sent TO the TBA address
+        execute_call_data, // Data is the ABI-encoded `execute` call
+        U256::ZERO,        // Outer transaction sends no ETH directly to the TBA
         provider,
-        hot_wallet_signer,      // Signed by the provided (potentially delegated) signer
+        hot_wallet_signer, // Signed by the provided (potentially delegated) signer
         gas_limit.or(Some(500_000)), // Default gas limit for TBA executions
         format_receipt,
     )
 }
-
 
 /// Executes a call through a Token Bound Account (TBA)
 /// Assumes the provided signer is the owner/controller authorized by the standard ERC6551 implementation.
@@ -1700,7 +1699,7 @@ pub fn tba_set_signer_data_key<S: Signer>(
 /// and then configures the entry's TBA to use this note for alternative signature validation.
 /// Requires the signature of the *owner* of the Hypermap entry.
 pub fn setup_alternative_signer<S: Signer>(
-    entry_name: &str,             // e.g., "username.hypr"
+    entry_name: &str,               // e.g., "username.hypr"
     alt_signer_address: EthAddress, // The address allowed to sign alternatively
     provider: &Provider,
     owner_signer: &S, // Signer holding the key that owns 'entry_name'
