@@ -762,7 +762,8 @@ impl Provider {
         loop {
             match self.subscribe(sub_id, filter.clone()) {
                 Ok(()) => break, // Success, exit loop
-                Err(e) => { // Log the actual error
+                Err(e) => {
+                    // Log the actual error
                     crate::print_to_terminal(
                         print_verbosity_error,
                         &format!(
