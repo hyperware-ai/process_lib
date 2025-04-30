@@ -619,4 +619,54 @@ impl Hypermap {
                 .collect::<Vec<_>>(),
         )
     }
+
+    /// Gets the list of delegate addresses stored via the standard Hypermap access control pattern.
+    /// This involves reading the `~access-list` note for the given `entry_path` to find the
+    /// namehash of the permissions note, then reading that permissions note to get the
+    /// ABI-encoded `Vec<Address>` of delegates.
+    ///
+    /// # Arguments
+    /// * `entry_path` - The base hypermap path (e.g., "myname.hypr") for which to find delegates.
+    ///
+    /// # Returns
+    /// A `Result<Vec<Address>, EthError>` containing the list of delegate addresses if found
+    /// and decoded successfully, or an error otherwise.
+    pub fn get_access_list_delegates(&self, entry_path: &str) -> Result<Vec<Address>, EthError> {
+        // 1. Construct the path to the ~access-list note
+        let access_list_path = format!("~access-list.{}", entry_path);
+
+        // 2. Get the ~access-list note data (expecting a B256 namehash)
+        let (_tba, _owner, access_list_data_opt) = self.get(&access_list_path)?;
+
+        let access_list_data = access_list_data_opt.ok_or_else(|| {
+            // Note not found or has no data - considered a malformed/unexpected response
+            EthError::RpcMalformedResponse
+        })?;
+
+        // 3. Decode the data as the permissions note hash (B256)
+        // We expect the raw bytes stored in the note to be exactly 32 bytes.
+        if access_list_data.len() != 32 {
+            // Invalid data length - malformed response
+            return Err(EthError::RpcMalformedResponse);
+        }
+        let perms_note_hash = B256::from_slice(access_list_data.as_ref());
+        let perms_note_hash_str = format!("0x{}", hex::encode(perms_note_hash));
+
+        // 4. Get the permissions note using the hash
+        let (_perms_tba, _perms_owner, perms_data_opt) =
+            self.get_hash(&perms_note_hash_str)?;
+
+        let perms_data = perms_data_opt.ok_or_else(|| {
+            // Permissions note not found or has no data - malformed/unexpected response
+            EthError::RpcMalformedResponse
+        })?;
+
+        // 5. Decode the permissions data as Vec<Address>
+        let delegates = Vec::<Address>::abi_decode(&perms_data, true).map_err(|_e| {
+            // Failed to decode Vec<Address> - malformed response
+            EthError::RpcMalformedResponse
+        })?;
+
+        Ok(delegates)
+    }
 }

@@ -2152,3 +2152,52 @@ pub fn get_token_details(
         formatted_balance,
     })
 }
+
+//
+// CALLDATA CREATION HELPERS
+//
+
+/// Creates the ABI-encoded calldata for an ERC20 `transfer` call.
+///
+/// # Arguments
+/// * `recipient` - The address to transfer tokens to.
+/// * `amount` - The amount of tokens to transfer (in the token's smallest unit, e.g., wei for ETH-like).
+///
+/// # Returns
+/// A `Vec<u8>` containing the ABI-encoded calldata.
+pub fn create_erc20_transfer_calldata(
+    recipient: EthAddress,
+    amount: U256,
+) -> Vec<u8> {
+    let call = IERC20::transferCall { to: recipient, value: amount };
+    call.abi_encode()
+}
+
+/// Creates the ABI-encoded calldata for a Hypermap `note` call.
+/// Performs validation on the note key format.
+///
+/// # Arguments
+/// * `note_key` - The note key (e.g., "~my-note"). Must start with '~'.
+/// * `data` - The byte data to store in the note.
+///
+/// # Returns
+/// A `Result<Vec<u8>, WalletError>` containing the ABI-encoded calldata on success,
+/// or a `WalletError::NameResolutionError` if the note key format is invalid.
+pub fn create_hypermap_note_calldata(
+    note_key: &str,
+    data: Vec<u8>,
+) -> Result<Vec<u8>, WalletError> {
+    // Validate the note key format
+    if !hypermap::valid_note(note_key) {
+        return Err(WalletError::NameResolutionError(format!(
+            "Invalid note key format: '{}'. Must start with '~' and follow naming rules.",
+            note_key
+        )));
+    }
+
+    let call = hypermap::contract::noteCall {
+        note: Bytes::from(note_key.as_bytes().to_vec()),
+        data: Bytes::from(data),
+    };
+    Ok(call.abi_encode())
+}
