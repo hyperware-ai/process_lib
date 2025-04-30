@@ -2164,11 +2164,11 @@ pub fn get_token_details(
 ///
 /// # Returns
 /// A `Vec<u8>` containing the ABI-encoded calldata.
-pub fn create_erc20_transfer_calldata(
-    recipient: EthAddress,
-    amount: U256,
-) -> Vec<u8> {
-    let call = IERC20::transferCall { to: recipient, value: amount };
+pub fn create_erc20_transfer_calldata(recipient: EthAddress, amount: U256) -> Vec<u8> {
+    let call = IERC20::transferCall {
+        to: recipient,
+        value: amount,
+    };
     call.abi_encode()
 }
 

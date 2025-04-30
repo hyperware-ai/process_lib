@@ -653,8 +653,7 @@ impl Hypermap {
         let perms_note_hash_str = format!("0x{}", hex::encode(perms_note_hash));
 
         // 4. Get the permissions note using the hash
-        let (_perms_tba, _perms_owner, perms_data_opt) =
-            self.get_hash(&perms_note_hash_str)?;
+        let (_perms_tba, _perms_owner, perms_data_opt) = self.get_hash(&perms_note_hash_str)?;
 
         let perms_data = perms_data_opt.ok_or_else(|| {
             // Permissions note not found or has no data - malformed/unexpected response
