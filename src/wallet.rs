@@ -1,4 +1,4 @@
-//! ## (unfinished, unpolished and not fully tested)  Ethereum wallet functionality for Hyperware.
+//! ## (unfinished, unpolished and not fully tested)  EVM wallet functionality for Hyperware.
 //!
 //! This module provides high-level wallet functionality for Ethereum,
 //! including transaction signing, contract interaction, and account management.
@@ -11,15 +11,15 @@
 use crate::eth::{BlockNumberOrTag, EthError, Provider};
 use crate::hypermap;
 use crate::hypermap::{namehash, valid_fact, valid_name, valid_note};
-use crate::kiprintln;
 use crate::signer::{EncryptedSignerData, LocalSigner, Signer, SignerError, TransactionData};
+use crate::println as kiprintln;
 
 use alloy::rpc::types::{
-    request::TransactionRequest, Block, BlockId, Filter, FilterBlockOption, FilterSet, Log,
-    Transaction, TransactionReceipt,
+    request::TransactionRequest, Filter, FilterBlockOption, FilterSet,
+    TransactionReceipt,
 };
 use alloy_primitives::TxKind;
-use alloy_primitives::{Address as EthAddress, Bytes, TxHash, U256};
+use alloy_primitives::{Address as EthAddress, Bytes, TxHash, U256, B256};
 use alloy_sol_types::{sol, SolCall};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -58,7 +58,10 @@ sol! {
     }
 
     interface IERC6551Account {
-        function execute(address to, uint256 value, bytes calldata data, uint8 operation) external returns (bytes);
+        function execute(address to, uint256 value, bytes calldata data, uint8 operation) external payable returns (bytes memory);
+        function isValidSigner(address signer, bytes calldata data) external view returns (bytes4 magicValue);
+        function token() external view returns (uint256 chainId, address tokenContract, uint256 tokenId);
+        function setSignerDataKey(bytes32 signerDataKey) external;
     }
 }
 
@@ -1487,13 +1490,363 @@ pub fn set_gene<S: Signer>(
     )
 }
 
+//
+// TOKEN BOUND ACCOUNT (ERC-6551) FUNCTIONS
+//
+
+/// Executes a call through a Token Bound Account (TBA) using a specific signer.
+/// This function is designed for scenarios where the signer might be an authorized delegate
+/// (e.g., via Hypermap notes like ~access-list) rather than the direct owner of the underlying NFT.
+/// The TBA's own `execute` implementation is responsible for verifying the signer's authorization.
+pub fn execute_via_tba_with_signer<S: Signer>(
+    tba_address_or_name: &str,    // Address or name of the TBA to execute through
+    hot_wallet_signer: &S,      // The signer (e.g., hot wallet) authorized to call execute
+    target_address_or_name: &str, // Address or name of the contract to call via the TBA
+    call_data: Vec<u8>,         // ABI-encoded data for the call to the target contract
+    value: U256,                // ETH value to send with the call to the target contract
+    provider: &Provider,
+    operation: Option<u8>,      // ERC-6551 operation type (0=CALL, 1=DELEGATECALL, etc.). Defaults to 0.
+    gas_limit: Option<u64>,     // Optional gas limit override. Defaults to 500,000.
+) -> Result<TxReceipt, WalletError> {
+    // Resolve addresses
+    let tba = resolve_name(tba_address_or_name, provider.chain_id)?;
+    let target = resolve_name(target_address_or_name, provider.chain_id)?;
+    let op = operation.unwrap_or(0); // Default to CALL operation
+
+    kiprintln!(
+        "PL:: Executing via TBA {} (signer: {}) -> Target {} (Op: {}, Value: {})",
+        tba,
+        hot_wallet_signer.address(),
+        target,
+        op,
+        value
+    );
+
+
+    // Create the outer execute call directed at the TBA
+    let execute_call = IERC6551Account::executeCall {
+        to: target,
+        value, // This value is sent from the TBA to the target
+        data: Bytes::from(call_data),
+        operation: op,
+    };
+    let execute_call_data = execute_call.abi_encode();
+
+    // Format receipt message
+    let format_receipt = move |_| {
+        format!(
+            "Execute via TBA {} to target {} (Signer: {})",
+            tba_address_or_name, target_address_or_name, hot_wallet_signer.address()
+        )
+    };
+
+    // Prepare and send the transaction *to* the TBA, signed by the hot_wallet_signer.
+    // The `value` field in `prepare_and_send_tx` is U256::ZERO because the ETH transfer
+    // happens *inside* the TBA's execution context, funded by the TBA itself.
+    prepare_and_send_tx(
+        tba,                    // Transaction is sent TO the TBA address
+        execute_call_data,      // Data is the ABI-encoded `execute` call
+        U256::ZERO,             // Outer transaction sends no ETH directly to the TBA
+        provider,
+        hot_wallet_signer,      // Signed by the provided (potentially delegated) signer
+        gas_limit.or(Some(500_000)), // Default gas limit for TBA executions
+        format_receipt,
+    )
+}
+
+
+/// Executes a call through a Token Bound Account (TBA)
+/// Assumes the provided signer is the owner/controller authorized by the standard ERC6551 implementation.
+pub fn tba_execute<S: Signer>(
+    tba_address: &str,
+    target_address: &str,
+    call_data: Vec<u8>,
+    value: U256,
+    operation: u8, // 0 for CALL, 1 for DELEGATECALL, etc.
+    provider: &Provider,
+    signer: &S,
+) -> Result<TxReceipt, WalletError> {
+    // Resolve addresses
+    let tba = resolve_name(tba_address, provider.chain_id)?;
+    let target = resolve_name(target_address, provider.chain_id)?;
+
+    // Create the execute call
+    let execute_call = IERC6551Account::executeCall {
+        to: target,
+        value,
+        data: Bytes::from(call_data),
+        operation,
+    };
+
+    // Format receipt message
+    let format_receipt = move |_| {
+        format!(
+            "Executed call via TBA {} to target {}",
+            tba_address, target_address
+        )
+    };
+
+    // Prepare and send the transaction - Use a higher default gas limit for TBA executions
+    prepare_and_send_tx(
+        tba,
+        execute_call.abi_encode(),
+        value, // Pass the value intended for the target call
+        provider,
+        signer,
+        Some(500_000), // Higher gas limit for potential complex TBA logic + target call
+        format_receipt,
+    )
+}
+
+/// Checks if an address is a valid signer for a given TBA.
+/// This checks against the standard ERC-6551 `isValidSigner` which returns a magic value.
+pub fn tba_is_valid_signer(
+    tba_address: &str,
+    signer_address: &str,
+    provider: &Provider,
+) -> Result<bool, WalletError> {
+    // Resolve addresses
+    let tba = resolve_name(tba_address, provider.chain_id)?;
+    let signer_addr = resolve_name(signer_address, provider.chain_id)?;
+
+    // Create the isValidSigner call
+    let call = IERC6551Account::isValidSignerCall {
+        signer: signer_addr,
+        data: Bytes::default(), // No extra data needed for standard check
+    };
+    let call_data = call.abi_encode();
+
+    // Perform the raw eth_call
+    let tx = TransactionRequest {
+        to: Some(TxKind::Call(tba)),
+        input: call_data.into(),
+        ..Default::default()
+    };
+    let result_bytes = provider.call(tx, None)?;
+
+    // Expected magic value for valid signer (IERC6551Account.isValidSigner.selector)
+    const ERC6551_IS_VALID_SIGNER: [u8; 4] = [0x52, 0x3e, 0x32, 0x60];
+
+    // Check if the returned bytes match the magic value
+    Ok(result_bytes.len() >= 4 && result_bytes[..4] == ERC6551_IS_VALID_SIGNER)
+}
+
+/// Retrieves the token information (chainId, contract address, tokenId) associated with a TBA.
+pub fn tba_get_token_info(
+    tba_address: &str,
+    provider: &Provider,
+) -> Result<(u64, EthAddress, U256), WalletError> {
+    // Resolve TBA address
+    let tba = resolve_name(tba_address, provider.chain_id)?;
+
+    // Create the token() call
+    let call = IERC6551Account::tokenCall {};
+
+    // Use the view function helper
+    let result = call_view_function(tba, call, provider)?;
+
+    // Use named fields from the generated struct
+    let chain_id_u256 = result.chainId;
+    let token_contract = result.tokenContract;
+    let token_id = result.tokenId;
+
+    // Convert chainId U256 to u64 (potential truncation, but unlikely for real chain IDs)
+    let chain_id = chain_id_u256.to::<u64>();
+
+    Ok((chain_id, token_contract, token_id))
+}
+
+/// Sets the signer data key for a HypermapSignerAccount TBA.
+/// This links the TBA's alternative signer validation mechanism to a specific Hypermap note hash.
+pub fn tba_set_signer_data_key<S: Signer>(
+    tba_address: &str,
+    data_key_hash: B256, // Use B256 for bytes32
+    provider: &Provider,
+    signer: &S, // Must be called by the current owner/controller of the TBA
+) -> Result<TxReceipt, WalletError> {
+    // Resolve TBA address
+    let tba = resolve_name(tba_address, provider.chain_id)?;
+
+    // Create the setSignerDataKey call
+    let set_key_call = IERC6551Account::setSignerDataKeyCall {
+        signerDataKey: data_key_hash,
+    };
+
+    // Format receipt message
+    let format_receipt = move |_| {
+        format!(
+            "Set signer data key for TBA {} to hash {}",
+            tba_address, data_key_hash
+        )
+    };
+
+    // Prepare and send the transaction
+    prepare_and_send_tx(
+        tba,
+        set_key_call.abi_encode(),
+        U256::ZERO,
+        provider,
+        signer,
+        Some(100_000), // Gas limit for a simple storage set
+        format_receipt,
+    )
+}
+
+//
+// HYPERMAP + TBA HELPER FUNCTIONS
+//
+
+/// Creates a note (~allowed-signer) on a Hypermap entry containing an alternative signer's address,
+/// and then configures the entry's TBA to use this note for alternative signature validation.
+/// Requires the signature of the *owner* of the Hypermap entry.
+pub fn setup_alternative_signer<S: Signer>(
+    entry_name: &str,             // e.g., "username.hypr"
+    alt_signer_address: EthAddress, // The address allowed to sign alternatively
+    provider: &Provider,
+    owner_signer: &S, // Signer holding the key that owns 'entry_name'
+) -> Result<TxReceipt, WalletError> {
+    // 1. Calculate the Hypermap entry hash
+    let entry_hash = hypermap::namehash(entry_name);
+
+    // 2. Get the TBA associated with this entry and verify ownership
+    let hypermap_contract = provider.hypermap();
+    let (tba, owner, _) = hypermap_contract.get_hash(&entry_hash)?;
+
+    // 3. Check if the provided signer is the owner
+    if owner_signer.address() != owner {
+        return Err(WalletError::PermissionDenied(format!(
+            "Signer {} does not own the entry {}",
+            owner_signer.address(),
+            entry_name
+        )));
+    }
+
+    // 4. Define the note key for the allowed signer
+    let note_key = "~allowed-signer";
+
+    // 5. Create the note in Hypermap storing the alternative signer's address
+    // This requires a transaction signed by the owner_signer, executed via the parent TBA (owner's TBA)
+    kiprintln!(
+        "PL:: Creating note '{}' on '{}' with data {}",
+        note_key,
+        entry_name,
+        alt_signer_address
+    );
+    let create_note_receipt = create_note(
+        entry_name,
+        note_key,
+        alt_signer_address.to_vec(), // Store address as bytes
+        provider.clone(),
+        owner_signer,
+    )?;
+    kiprintln!(
+        "PL:: Create note transaction sent: {}",
+        create_note_receipt.hash
+    );
+    // Note: We might want to wait for this tx to confirm before proceeding
+
+    // 6. Calculate the namehash of the specific note
+    // Combine note key and entry name, then hash
+    let note_full_name = format!("{}.{}", note_key, entry_name);
+    let note_hash_str = hypermap::namehash(&note_full_name);
+    // Convert the String hash to B256
+    let note_hash = B256::from_str(&note_hash_str.trim_start_matches("0x"))
+        .map_err(|_| WalletError::TransactionError("Failed to parse note hash string".into()))?;
+
+    kiprintln!(
+        "PL:: Calculated note hash for '{}': {}",
+        note_full_name,
+        note_hash
+    );
+
+    // 7. Set this note hash as the signer data key in the TBA
+    // This also requires a transaction signed by the owner_signer, sent directly to the TBA
+    kiprintln!(
+        "PL:: Setting signer data key on TBA {} to note hash {}",
+        tba,
+        note_hash
+    );
+    let set_key_receipt = tba_set_signer_data_key(
+        &tba.to_string(), // Use the TBA address resolved earlier
+        note_hash,
+        provider,
+        owner_signer, // Owner signer makes this call directly to the TBA
+    )?;
+    kiprintln!(
+        "PL:: Set signer data key transaction sent: {}",
+        set_key_receipt.hash
+    );
+
+    // Return the receipt of the *second* transaction (setting the key)
+    // Ideally, we'd return both or confirm the first one succeeded.
+    Ok(TxReceipt {
+        hash: set_key_receipt.hash,
+        details: format!(
+            "Set up alternative signer {} for entry {} (Note Tx: {}, SetKey Tx: {})",
+            alt_signer_address, entry_name, create_note_receipt.hash, set_key_receipt.hash
+        ),
+    })
+}
+
+/// Retrieves the alternative signer address stored in the '~allowed-signer' note
+/// associated with a given Hypermap entry.
+pub fn get_alternative_signer(
+    entry_name: &str,
+    provider: &Provider,
+) -> Result<Option<EthAddress>, WalletError> {
+    // 1. Calculate the Hypermap entry hash
+    let _entry_hash = hypermap::namehash(entry_name);
+
+    // 2. Define the note key
+    let note_key = "~allowed-signer";
+
+    // 3. Calculate the specific note hash
+    let hypermap_contract = provider.hypermap();
+    let note_full_name = format!("{}.{}", note_key, entry_name);
+    let note_hash = hypermap::namehash(&note_full_name);
+
+    // 4. Get the data stored at this specific note hash from Hypermap
+    match hypermap_contract.get_hash(&note_hash) {
+        Ok((_tba, _owner, data_option)) => {
+            // Handle the Option<Bytes>
+            match data_option {
+                Some(data_bytes) => {
+                    // 5. If data is present and exactly 20 bytes long, parse it as an address
+                    if data_bytes.len() == 20 {
+                        Ok(Some(EthAddress::from_slice(data_bytes.as_ref())))
+                    } else {
+                        // Data exists but is the wrong length - use TransactionError
+                        Err(WalletError::TransactionError(format!(
+                            "Data at note hash {} for entry {} has incorrect length ({}) for an address",
+                            note_hash,
+                            entry_name,
+                            data_bytes.len()
+                        )))
+                    }
+                }
+                None => {
+                    // Note exists (or get_hash succeeded) but has no data
+                    Ok(None)
+                }
+            }
+        }
+        Err(EthError::RpcError(msg)) => {
+            // Convert potential JSON error message to string for checking
+            let msg_str = msg.to_string();
+            if msg_str.contains("Execution reverted") || msg_str.contains("invalid opcode") {
+                // This likely means the note hash doesn't exist or isn't registered
+                Ok(None)
+            } else {
+                // Propagate other RPC errors
+                Err(WalletError::EthError(EthError::RpcError(msg)))
+            }
+        }
+        Err(e) => Err(WalletError::EthError(e)), // Propagate other errors
+    }
+}
+
 // TODO: TEST
-//
-//
-//
-//
-//
-//
+// ... existing test section ...
 
 /// Transaction details in a more user-friendly format
 #[derive(Debug, Clone)]

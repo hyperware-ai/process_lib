@@ -14,9 +14,6 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 
-// TODO: remove this
-use crate::kiprintln;
-
 /// Subscription kind. Pulled directly from alloy (https://github.com/alloy-rs/alloy).
 /// Why? Because alloy is not yet 1.0 and the types in this interface must be stable.
 /// If alloy SubscriptionKind changes, we can implement a transition function in runtime
@@ -337,9 +334,6 @@ impl Provider {
             .send_and_await_response(self.request_timeout)
             .unwrap()
             .map_err(|_| EthError::RpcTimeout)?;
-
-        //TODO: remove
-        //kiprintln!("PROCESS_LIB::send_request_and_parse_response resp: {:#?}", resp);
 
         match resp {
             Message::Response { body, .. } => match serde_json::from_slice::<EthResponse>(&body) {
@@ -705,8 +699,6 @@ impl Provider {
             // NOTE: tx must be encased by a tuple to be serialized correctly
             params: serde_json::to_value((tx,)).unwrap(),
         };
-        //TODO: remove
-        kiprintln!("PROCESS_LIB::send_raw_transaction action: {:#?}", action);
 
         self.send_request_and_parse_response::<TxHash>(action)
     }
@@ -764,21 +756,54 @@ impl Provider {
         print_verbosity_success: u8,
         print_verbosity_error: u8,
     ) {
+        let mut delay_secs = 5; // Initial delay
+        const MAX_DELAY_SECS: u64 = 60; // Maximum delay
+
         loop {
             match self.subscribe(sub_id, filter.clone()) {
-                Ok(()) => break,
-                Err(_) => {
+                Ok(()) => break, // Success, exit loop
+                Err(e) => { // Log the actual error
                     crate::print_to_terminal(
                         print_verbosity_error,
-                        "failed to subscribe to chain! trying again in 5s...",
+                        &format!(
+                            "Failed to subscribe to chain (sub_id {}): {:?}. Retrying in {}s...",
+                            sub_id, e, delay_secs
+                        ),
                     );
-                    std::thread::sleep(std::time::Duration::from_secs(5));
-                    continue;
+                    std::thread::sleep(std::time::Duration::from_secs(delay_secs));
+                    // Increase delay for next attempt, capped at maximum
+                    delay_secs = (delay_secs * 2).min(MAX_DELAY_SECS);
+                    continue; // Retry
                 }
             }
         }
-        crate::print_to_terminal(print_verbosity_success, "subscribed to logs successfully");
+        crate::print_to_terminal(
+            print_verbosity_success,
+            &format!("Subscribed successfully (sub_id {})", sub_id),
+        );
     }
+    //pub fn subscribe_loop(
+    //    &self,
+    //    sub_id: u64,
+    //    filter: Filter,
+    //    print_verbosity_success: u8,
+    //    print_verbosity_error: u8,
+    //) {
+    //    loop {
+    //        match self.subscribe(sub_id, filter.clone()) {
+    //            Ok(()) => break,
+    //            Err(_) => {
+    //                crate::print_to_terminal(
+    //                    print_verbosity_error,
+    //                    "failed to subscribe to chain! trying again in 5s...",
+    //                );
+    //                std::thread::sleep(std::time::Duration::from_secs(5));
+    //                continue;
+    //            }
+    //        }
+    //    }
+    //    crate::print_to_terminal(print_verbosity_success, "subscribed to logs successfully");
+    //}
 
     /// Unsubscribes from a previously created subscription.
     ///

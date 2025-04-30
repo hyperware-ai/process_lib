@@ -140,7 +140,7 @@ impl<'de> Deserialize<'de> for LocalSigner {
     {
         #[derive(Deserialize)]
         struct LocalSignerData {
-            address: EthAddress,
+            _address: EthAddress,
             chain_id: u64,
             private_key_hex: String,
         }
