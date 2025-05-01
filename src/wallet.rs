@@ -1524,7 +1524,8 @@ pub fn execute_via_tba_with_signer<S: Signer>(
     // Create the outer execute call (with txGas) directed at the TBA
     // Use the _1 suffix for the second defined execute function (5 args)
     let internal_gas_limit = U256::from(500_000); // Explicitly set gas for the internal call
-    let execute_call = IERC6551Account::execute_1Call { // <-- Using _1 suffix now
+    let execute_call = IERC6551Account::execute_1Call {
+        // <-- Using _1 suffix now
         to: target,
         value, // This value is sent from the TBA to the target
         data: Bytes::from(call_data),
