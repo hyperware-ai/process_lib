@@ -58,6 +58,7 @@ sol! {
 
     interface IERC6551Account {
         function execute(address to, uint256 value, bytes calldata data, uint8 operation) external payable returns (bytes memory);
+        function execute(address to, uint256 value, bytes calldata data, uint8 operation, uint256 txGas) external payable returns (bytes memory);
         function isValidSigner(address signer, bytes calldata data) external view returns (bytes4 magicValue);
         function token() external view returns (uint256 chainId, address tokenContract, uint256 tokenId);
         function setSignerDataKey(bytes32 signerDataKey) external;
@@ -492,7 +493,7 @@ where
     }
 
     // Create the ERC-6551 execute call
-    let execute_call = IERC6551Account::executeCall {
+    let execute_call = IERC6551Account::execute_0Call {
         to: *hypermap.address(),
         value: U256::ZERO,
         data: hypermap_call_data,
@@ -1498,14 +1499,13 @@ pub fn set_gene<S: Signer>(
 /// (e.g., via Hypermap notes like ~access-list) rather than the direct owner of the underlying NFT.
 /// The TBA's own `execute` implementation is responsible for verifying the signer's authorization.
 pub fn execute_via_tba_with_signer<S: Signer>(
-    tba_address_or_name: &str, // Address or name of the TBA to execute through
-    hot_wallet_signer: &S,     // The signer (e.g., hot wallet) authorized to call execute
-    target_address_or_name: &str, // Address or name of the contract to call via the TBA
-    call_data: Vec<u8>,        // ABI-encoded data for the call to the target contract
-    value: U256,               // ETH value to send with the call to the target contract
+    tba_address_or_name: &str,
+    hot_wallet_signer: &S,
+    target_address_or_name: &str,
+    call_data: Vec<u8>,
+    value: U256,
     provider: &Provider,
-    operation: Option<u8>, // ERC-6551 operation type (0=CALL, 1=DELEGATECALL, etc.). Defaults to 0.
-    gas_limit: Option<u64>, // Optional gas limit override. Defaults to 500,000.
+    operation: Option<u8>,
 ) -> Result<TxReceipt, WalletError> {
     // Resolve addresses
     let tba = resolve_name(tba_address_or_name, provider.chain_id)?;
@@ -1521,35 +1521,40 @@ pub fn execute_via_tba_with_signer<S: Signer>(
         value
     );
 
-    // Create the outer execute call directed at the TBA
-    let execute_call = IERC6551Account::executeCall {
+    // Create the outer execute call (with txGas) directed at the TBA
+    // Use the _1 suffix for the second defined execute function (5 args)
+    let internal_gas_limit = U256::from(500_000); // Explicitly set gas for the internal call
+    let execute_call = IERC6551Account::execute_1Call { // <-- Using _1 suffix now
         to: target,
         value, // This value is sent from the TBA to the target
         data: Bytes::from(call_data),
         operation: op,
+        txGas: internal_gas_limit, // Provide gas for the internal call
     };
     let execute_call_data = execute_call.abi_encode();
 
     // Format receipt message
     let format_receipt = move |_| {
         format!(
-            "Execute via TBA {} to target {} (Signer: {})",
+            "Execute via TBA {} to target {} (Signer: {}, Internal Gas: {})", // Updated log
             tba_address_or_name,
             target_address_or_name,
-            hot_wallet_signer.address()
+            hot_wallet_signer.address(),
+            internal_gas_limit // Log internal gas
         )
     };
 
     // Prepare and send the transaction *to* the TBA, signed by the hot_wallet_signer.
-    // The `value` field in `prepare_and_send_tx` is U256::ZERO because the ETH transfer
+    // The `value` field in the *outer* transaction is U256::ZERO because the ETH transfer
     // happens *inside* the TBA's execution context, funded by the TBA itself.
+    // prepare_and_send_tx will handle gas estimation for the outer transaction.
     prepare_and_send_tx(
         tba,               // Transaction is sent TO the TBA address
-        execute_call_data, // Data is the ABI-encoded `execute` call
+        execute_call_data, // Data is the ABI-encoded `execute` call with internal gas limit
         U256::ZERO,        // Outer transaction sends no ETH directly to the TBA
         provider,
         hot_wallet_signer, // Signed by the provided (potentially delegated) signer
-        gas_limit.or(Some(500_000)), // Default gas limit for TBA executions
+        None,              // Let prepare_and_send_tx estimate outer gas limit
         format_receipt,
     )
 }
@@ -1570,7 +1575,7 @@ pub fn tba_execute<S: Signer>(
     let target = resolve_name(target_address, provider.chain_id)?;
 
     // Create the execute call
-    let execute_call = IERC6551Account::executeCall {
+    let execute_call = IERC6551Account::execute_0Call {
         to: target,
         value,
         data: Bytes::from(call_data),
