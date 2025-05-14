@@ -42,7 +42,7 @@ pub struct TerminalWriterMaker {
 
 impl std::io::Write for RemoteWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let log = if let Ok(json_log) = serde_json::from_slice(buf) {
+        let log = if let Ok(json_log) = serde_json::from_slice::<serde_json::Value>(buf) {
             serde_json::to_string(&json_log).unwrap()
         } else {
             let string = String::from_utf8(buf.to_vec())
