@@ -6,6 +6,7 @@ use crate::{get_blob, PackageId};
 /// VFS (Virtual File System) helper struct for a file.
 /// Opening or creating a `File` will give you a `Result<File, VfsError>`.
 /// You can call its impl functions to interact with it.
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct File {
     pub path: String,
     pub timeout: u64,
