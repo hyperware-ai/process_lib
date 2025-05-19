@@ -18,8 +18,8 @@ use serde_json::Value;
 
 wit_bindgen::generate!({
     path: "hyperware-wit",
+    world: "process-lib",
     generate_unused_types: true,
-    world: "lib",
 });
 
 /// Interact with the eth provider module.
@@ -54,6 +54,7 @@ pub mod logging;
 /// Your process must have the [`Capability`] to message and receive messages from
 /// `net:distro:sys` to use this module.
 pub mod net;
+pub mod sign;
 /// Interact with the sqlite module
 ///
 /// Your process must have the [`Capability] to message and receive messages from

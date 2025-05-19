@@ -1,12 +1,25 @@
-use crate::eth::{EthError, Provider};
+use crate::eth::{
+    BlockNumberOrTag, EthError, Filter as EthFilter, FilterBlockOption, Log as EthLog, Provider,
+};
 use crate::hypermap::contract::getCall;
-use crate::net;
+use crate::hyperware::process::hypermap_cacher::{
+    CacherRequest, CacherResponse, CacherStatus, GetLogsByRangeRequest, LogsMetadata, Manifest,
+    ManifestItem,
+};
+use crate::{net, sign};
+use crate::{print_to_terminal, Address as HyperAddress, Request};
+use alloy::hex;
 use alloy::rpc::types::request::{TransactionInput, TransactionRequest};
-use alloy::{hex, primitives::keccak256};
-use alloy_primitives::{Address, Bytes, FixedBytes, B256};
+use alloy_primitives::{keccak256, Address, Bytes, FixedBytes, B256};
 use alloy_sol_types::{SolCall, SolEvent, SolValue};
 use contract::tokenCall;
-use serde::{Deserialize, Serialize};
+use serde::{
+    self,
+    de::{self, MapAccess, Visitor},
+    ser::SerializeStruct,
+    Deserialize, Deserializer, Serialize, Serializer,
+};
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
@@ -26,6 +39,15 @@ pub const HYPERMAP_FIRST_BLOCK: u64 = 0;
 /// the root hash of hypermap, empty bytes32
 pub const HYPERMAP_ROOT_HASH: &'static str =
     "0x0000000000000000000000000000000000000000000000000000000000000000";
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LogCache {
+    pub metadata: LogsMetadata,
+    pub logs: Vec<EthLog>,
+}
+
+const DEFAULT_CACHER_NODES: [&str; 0] = [];
+const CACHER_REQUEST_TIMEOUT_S: u64 = 15;
 
 /// Sol structures for Hypermap requests
 pub mod contract {
@@ -290,10 +312,7 @@ impl fmt::Display for DecodeLogError {
 
 impl Error for DecodeLogError {}
 
-/// Canonical function to determine if a hypermap entry is valid. This should
-/// be used whenever reading a new hypermap entry from a mints query, because
-/// while most frontends will enforce these rules, it is possible to post
-/// invalid names to the hypermap contract.
+/// Canonical function to determine if a hypermap entry is valid.
 ///
 /// This checks a **single name**, not the full path-name. A full path-name
 /// is comprised of valid names separated by `.`
@@ -452,6 +471,80 @@ pub fn resolve_full_name(log: &crate::eth::Log, timeout: Option<u64>) -> Option<
         return None;
     }
     Some(format!("{name}.{parent_name}"))
+}
+
+pub fn eth_apply_filter(logs: &[EthLog], filter: &EthFilter) -> anyhow::Result<Vec<EthLog>> {
+    let mut matched_logs = Vec::new();
+
+    let (filter_from_block, filter_to_block) = match filter.block_option {
+        FilterBlockOption::Range {
+            from_block,
+            to_block,
+        } => {
+            let parse_block_num = |bn: Option<BlockNumberOrTag>| -> Option<u64> {
+                match bn {
+                    Some(BlockNumberOrTag::Number(n)) => Some(n),
+                    _ => None,
+                }
+            };
+            (parse_block_num(from_block), parse_block_num(to_block))
+        }
+        _ => (None, None),
+    };
+
+    for log in logs.iter() {
+        let mut match_address = filter.address.is_empty();
+        if !match_address {
+            if filter.address.matches(&log.address()) {
+                match_address = true;
+            }
+        }
+        if !match_address {
+            continue;
+        }
+
+        if let Some(log_bn) = log.block_number {
+            if let Some(filter_from) = filter_from_block {
+                if log_bn < filter_from {
+                    continue;
+                }
+            }
+            if let Some(filter_to) = filter_to_block {
+                if log_bn > filter_to {
+                    continue;
+                }
+            }
+        } else {
+            if filter_from_block.is_some() || filter_to_block.is_some() {
+                continue;
+            }
+        }
+
+        let mut match_topics = true;
+        for (i, filter_topic_alternatives) in filter.topics.iter().enumerate() {
+            if filter_topic_alternatives.is_empty() {
+                continue;
+            }
+
+            let log_topic = log.topics().get(i);
+            let mut current_topic_matched = false;
+            for filter_topic in filter_topic_alternatives.iter() {
+                if log_topic == Some(filter_topic) {
+                    current_topic_matched = true;
+                    break;
+                }
+            }
+            if !current_topic_matched {
+                match_topics = false;
+                break;
+            }
+        }
+
+        if match_topics {
+            matched_logs.push(log.clone());
+        }
+    }
+    Ok(matched_logs)
 }
 
 /// Helper struct for reading from the hypermap.
@@ -617,6 +710,1111 @@ impl Hypermap {
                 .into_iter()
                 .map(|fact| keccak256(fact))
                 .collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn get_bootstrap_log_cache(
+        &self,
+        from_block: Option<u64>,
+        mut nodes: HashSet<String>,
+        chain: Option<String>,
+    ) -> anyhow::Result<Vec<LogCache>> {
+        print_to_terminal(2,
+            &format!("get_bootstrap_log_cache (using GetLogsByRange): from_block={:?}, nodes={:?}, chain={:?}",
+            from_block, nodes, chain)
+        );
+
+        for default_node in DEFAULT_CACHER_NODES.iter() {
+            nodes.insert(default_node.to_string());
+        }
+
+        if nodes.is_empty() {
+            print_to_terminal(
+                1,
+                "get_bootstrap_log_cache: No cacher nodes specified or defaulted.",
+            );
+            return Ok(Vec::new());
+        }
+
+        let target_chain_id = chain.unwrap_or_else(|| self.provider.get_chain_id().to_string());
+        let mut all_retrieved_log_caches: Vec<LogCache> = Vec::new();
+        let request_from_block_val = from_block.unwrap_or(0);
+
+        for node_address_str in nodes {
+            let Ok(cacher_process_address) = HyperAddress::from_str(&node_address_str) else {
+                print_to_terminal(
+                    1,
+                    &format!("Invalid cacher node address string: {}", node_address_str),
+                );
+                continue;
+            };
+
+            print_to_terminal(
+                2,
+                &format!(
+                    "Querying cacher node with GetLogsByRange: {}",
+                    cacher_process_address.to_string(),
+                ),
+            );
+
+            let get_logs_by_range_payload = GetLogsByRangeRequest {
+                from_block: request_from_block_val,
+                to_block: None, // Request all logs from from_block onwards. Cacher will return what it has.
+            };
+            let cacher_request = CacherRequest::GetLogsByRange(get_logs_by_range_payload);
+
+            let response_msg = Request::to(cacher_process_address.clone())
+                .body(serde_json::to_vec(&cacher_request)?)
+                .send_and_await_response(CACHER_REQUEST_TIMEOUT_S)?
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Error response from cacher {} for GetLogsByRange: {:?}",
+                        cacher_process_address.to_string(),
+                        e
+                    )
+                })?;
+
+            let logs_by_range_result =
+                match serde_json::from_slice::<CacherResponse>(response_msg.body())? {
+                    CacherResponse::GetLogsByRange(res) => res,
+                    _ => {
+                        print_to_terminal(
+                            1,
+                            &format!(
+                                "Unexpected response type from cacher {} for GetLogsByRange",
+                                cacher_process_address.to_string(),
+                            ),
+                        );
+                        continue;
+                    }
+                };
+
+            match logs_by_range_result {
+                Ok(json_string_of_vec_log_cache) => {
+                    if json_string_of_vec_log_cache.is_empty()
+                        || json_string_of_vec_log_cache == "[]"
+                    {
+                        print_to_terminal(
+                            2,
+                            &format!(
+                                "Cacher {} returned no log caches for the range from block {}.",
+                                cacher_process_address.to_string(),
+                                request_from_block_val,
+                            ),
+                        );
+                        continue;
+                    }
+                    match serde_json::from_str::<Vec<LogCache>>(&json_string_of_vec_log_cache) {
+                        Ok(retrieved_caches) => {
+                            for log_cache in retrieved_caches {
+                                if log_cache.metadata.chain_id == target_chain_id {
+                                    // Further filter: ensure the cache's own from_block isn't completely after what we need,
+                                    // and to_block isn't completely before.
+                                    // The GetLogsByRange on cacher side should handle this, but double check.
+                                    let cache_from = log_cache
+                                        .metadata
+                                        .from_block
+                                        .parse::<u64>()
+                                        .unwrap_or(u64::MAX);
+                                    let cache_to =
+                                        log_cache.metadata.to_block.parse::<u64>().unwrap_or(0);
+
+                                    if cache_to >= request_from_block_val {
+                                        // Cache has some data at or after our request_from_block
+                                        all_retrieved_log_caches.push(log_cache);
+                                    } else {
+                                        print_to_terminal(3, &format!("Cache from {} ({} to {}) does not meet request_from_block {}",
+                                            cacher_process_address.to_string(), cache_from, cache_to, request_from_block_val));
+                                    }
+                                } else {
+                                    print_to_terminal(1,&format!("LogCache from {} has mismatched chain_id (expected {}, got {}). Skipping.",
+                                        cacher_process_address.to_string(), target_chain_id, log_cache.metadata.chain_id));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            print_to_terminal(1,&format!("Failed to deserialize Vec<LogCache> from cacher {}: {:?}. JSON: {:.100}",
+                                cacher_process_address.to_string(), e, json_string_of_vec_log_cache));
+                        }
+                    }
+                }
+                Err(e_str) => {
+                    print_to_terminal(
+                        1,
+                        &format!(
+                            "Cacher {} reported error for GetLogsByRange: {}",
+                            cacher_process_address.to_string(),
+                            e_str,
+                        ),
+                    );
+                }
+            }
+        }
+        print_to_terminal(
+            2,
+            &format!(
+                "Retrieved {} log caches in total using GetLogsByRange.",
+                all_retrieved_log_caches.len(),
+            ),
+        );
+        Ok(all_retrieved_log_caches)
+    }
+
+    pub fn validate_log_cache(&self, log_cache: &LogCache) -> anyhow::Result<bool> {
+        let from_block = log_cache.metadata.from_block.parse::<u64>().map_err(|_| {
+            anyhow::anyhow!(
+                "Invalid from_block in metadata: {}",
+                log_cache.metadata.from_block
+            )
+        })?;
+        let to_block = log_cache.metadata.to_block.parse::<u64>().map_err(|_| {
+            anyhow::anyhow!(
+                "Invalid to_block in metadata: {}",
+                log_cache.metadata.to_block
+            )
+        })?;
+
+        let mut bytes_to_verify = serde_json::to_vec(&log_cache.logs)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize logs for validation: {:?}", e))?;
+        bytes_to_verify.extend_from_slice(&from_block.to_be_bytes());
+        bytes_to_verify.extend_from_slice(&to_block.to_be_bytes());
+        let hashed_data = keccak256(&bytes_to_verify);
+
+        let signature_hex = log_cache.metadata.signature.trim_start_matches("0x");
+        let signature_bytes = hex::decode(signature_hex)
+            .map_err(|e| anyhow::anyhow!("Failed to decode hex signature: {:?}", e))?;
+
+        Ok(sign::net_key_verify(
+            hashed_data.to_vec(),
+            &log_cache.metadata.created_by.parse::<HyperAddress>()?,
+            signature_bytes,
+        )?)
+    }
+
+    pub fn get_bootstrap(
+        &self,
+        from_block: Option<u64>,
+        nodes: HashSet<String>,
+        chain: Option<String>,
+    ) -> anyhow::Result<Vec<EthLog>> {
+        print_to_terminal(
+            2,
+            &format!(
+                "get_bootstrap: from_block={:?}, nodes={:?}, chain={:?}",
+                from_block, nodes, chain,
+            ),
+        );
+        let log_caches = self.get_bootstrap_log_cache(from_block, nodes, chain)?;
+
+        let mut all_valid_logs: Vec<EthLog> = Vec::new();
+        let request_from_block_val = from_block.unwrap_or(0);
+
+        for log_cache in log_caches {
+            match self.validate_log_cache(&log_cache) {
+                Ok(true) => {
+                    for log in log_cache.logs {
+                        if let Some(log_block_number) = log.block_number {
+                            if log_block_number >= request_from_block_val {
+                                all_valid_logs.push(log);
+                            }
+                        } else {
+                            if from_block.is_none() {
+                                all_valid_logs.push(log);
+                            }
+                        }
+                    }
+                }
+                Ok(false) => {
+                    print_to_terminal(
+                        1,
+                        &format!("LogCache validation failed for cache created by {}. Discarding {} logs.",
+                        log_cache.metadata.created_by,
+                        log_cache.logs.len())
+                    );
+                }
+                Err(e) => {
+                    print_to_terminal(
+                        1,
+                        &format!(
+                            "Error validating LogCache from {}: {:?}. Discarding.",
+                            log_cache.metadata.created_by, e,
+                        ),
+                    );
+                }
+            }
+        }
+
+        all_valid_logs.sort_by(|a, b| {
+            let block_cmp = a.block_number.cmp(&b.block_number);
+            if block_cmp == std::cmp::Ordering::Equal {
+                std::cmp::Ordering::Equal
+            } else {
+                block_cmp
+            }
+        });
+
+        let mut unique_logs = Vec::new();
+        for log in all_valid_logs {
+            if !unique_logs.contains(&log) {
+                unique_logs.push(log);
+            }
+        }
+
+        print_to_terminal(
+            2,
+            &format!(
+                "get_bootstrap: Consolidated {} unique logs.",
+                unique_logs.len(),
+            ),
+        );
+        Ok(unique_logs)
+    }
+
+    pub fn bootstrap(
+        &self,
+        from_block: Option<u64>,
+        filters: Vec<EthFilter>,
+        nodes: HashSet<String>,
+        chain: Option<String>,
+    ) -> anyhow::Result<Vec<Vec<EthLog>>> {
+        print_to_terminal(
+            2,
+            &format!(
+                "bootstrap: from_block={:?}, num_filters={}, nodes={:?}, chain={:?}",
+                from_block,
+                filters.len(),
+                nodes,
+                chain,
+            ),
+        );
+
+        let consolidated_logs = self.get_bootstrap(from_block, nodes, chain)?;
+
+        if consolidated_logs.is_empty() {
+            print_to_terminal(2,"bootstrap: No logs retrieved after consolidation. Returning empty results for filters.");
+            return Ok(filters.iter().map(|_| Vec::new()).collect());
+        }
+
+        let mut results_per_filter: Vec<Vec<EthLog>> = Vec::new();
+        for filter in filters {
+            let filtered_logs = eth_apply_filter(&consolidated_logs, &filter)?;
+            results_per_filter.push(filtered_logs);
+        }
+
+        print_to_terminal(
+            2,
+            &format!(
+                "bootstrap: Applied {} filters to bootstrapped logs.",
+                results_per_filter.len(),
+            ),
+        );
+        Ok(results_per_filter)
+    }
+}
+
+impl Serialize for ManifestItem {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("ManifestItem", 4)?;
+        state.serialize_field("metadata", &self.metadata)?;
+        state.serialize_field("is_empty", &self.is_empty)?;
+        state.serialize_field("file_hash", &self.file_hash)?;
+        state.serialize_field("file_name", &self.file_name)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for ManifestItem {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        enum Field {
+            Metadata,
+            IsEmpty,
+            FileHash,
+            FileName,
+        }
+
+        struct ManifestItemVisitor;
+
+        impl<'de> Visitor<'de> for ManifestItemVisitor {
+            type Value = ManifestItem;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct ManifestItem")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<ManifestItem, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut metadata = None;
+                let mut is_empty = None;
+                let mut file_hash = None;
+                let mut file_name = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Metadata => {
+                            if metadata.is_some() {
+                                return Err(de::Error::duplicate_field("metadata"));
+                            }
+                            metadata = Some(map.next_value()?);
+                        }
+                        Field::IsEmpty => {
+                            if is_empty.is_some() {
+                                return Err(de::Error::duplicate_field("is_empty"));
+                            }
+                            is_empty = Some(map.next_value()?);
+                        }
+                        Field::FileHash => {
+                            if file_hash.is_some() {
+                                return Err(de::Error::duplicate_field("file_hash"));
+                            }
+                            file_hash = Some(map.next_value()?);
+                        }
+                        Field::FileName => {
+                            if file_name.is_some() {
+                                return Err(de::Error::duplicate_field("file_name"));
+                            }
+                            file_name = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let metadata = metadata.ok_or_else(|| de::Error::missing_field("metadata"))?;
+                let is_empty = is_empty.ok_or_else(|| de::Error::missing_field("is_empty"))?;
+                let file_hash = file_hash.ok_or_else(|| de::Error::missing_field("file_hash"))?;
+                let file_name = file_name.ok_or_else(|| de::Error::missing_field("file_name"))?;
+
+                Ok(ManifestItem {
+                    metadata,
+                    is_empty,
+                    file_hash,
+                    file_name,
+                })
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "ManifestItem",
+            &["metadata", "is_empty", "file_hash", "file_name"],
+            ManifestItemVisitor,
+        )
+    }
+}
+
+// Manifest implementation
+impl Serialize for Manifest {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("Manifest", 4)?;
+        state.serialize_field("items", &self.items)?;
+        state.serialize_field("manifest_filename", &self.manifest_filename)?;
+        state.serialize_field("chain_id", &self.chain_id)?;
+        state.serialize_field("protocol_version", &self.protocol_version)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Manifest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        enum Field {
+            Items,
+            ManifestFilename,
+            ChainId,
+            ProtocolVersion,
+        }
+
+        struct ManifestVisitor;
+
+        impl<'de> Visitor<'de> for ManifestVisitor {
+            type Value = Manifest;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct Manifest")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Manifest, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut items = None;
+                let mut manifest_filename = None;
+                let mut chain_id = None;
+                let mut protocol_version = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Items => {
+                            if items.is_some() {
+                                return Err(de::Error::duplicate_field("items"));
+                            }
+                            items = Some(map.next_value()?);
+                        }
+                        Field::ManifestFilename => {
+                            if manifest_filename.is_some() {
+                                return Err(de::Error::duplicate_field("manifest_filename"));
+                            }
+                            manifest_filename = Some(map.next_value()?);
+                        }
+                        Field::ChainId => {
+                            if chain_id.is_some() {
+                                return Err(de::Error::duplicate_field("chain_id"));
+                            }
+                            chain_id = Some(map.next_value()?);
+                        }
+                        Field::ProtocolVersion => {
+                            if protocol_version.is_some() {
+                                return Err(de::Error::duplicate_field("protocol_version"));
+                            }
+                            protocol_version = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let items = items.ok_or_else(|| de::Error::missing_field("items"))?;
+                let manifest_filename = manifest_filename
+                    .ok_or_else(|| de::Error::missing_field("manifest_filename"))?;
+                let chain_id = chain_id.ok_or_else(|| de::Error::missing_field("chain_id"))?;
+                let protocol_version =
+                    protocol_version.ok_or_else(|| de::Error::missing_field("protocol_version"))?;
+
+                Ok(Manifest {
+                    items,
+                    manifest_filename,
+                    chain_id,
+                    protocol_version,
+                })
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "Manifest",
+            &["items", "manifest_filename", "chain_id", "protocol_version"],
+            ManifestVisitor,
+        )
+    }
+}
+
+// GetLogsByRangeRequest implementation
+impl Serialize for GetLogsByRangeRequest {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("GetLogsByRangeRequest", 2)?;
+        state.serialize_field("from_block", &self.from_block)?;
+        state.serialize_field("to_block", &self.to_block)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for GetLogsByRangeRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        enum Field {
+            FromBlock,
+            ToBlock,
+        }
+
+        struct GetLogsByRangeRequestVisitor;
+
+        impl<'de> Visitor<'de> for GetLogsByRangeRequestVisitor {
+            type Value = GetLogsByRangeRequest;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct GetLogsByRangeRequest")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<GetLogsByRangeRequest, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut from_block = None;
+                let mut to_block = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::FromBlock => {
+                            if from_block.is_some() {
+                                return Err(de::Error::duplicate_field("from_block"));
+                            }
+                            from_block = Some(map.next_value()?);
+                        }
+                        Field::ToBlock => {
+                            if to_block.is_some() {
+                                return Err(de::Error::duplicate_field("to_block"));
+                            }
+                            to_block = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let from_block =
+                    from_block.ok_or_else(|| de::Error::missing_field("from_block"))?;
+
+                Ok(GetLogsByRangeRequest {
+                    from_block,
+                    to_block,
+                })
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "GetLogsByRangeRequest",
+            &["from_block", "to_block"],
+            GetLogsByRangeRequestVisitor,
+        )
+    }
+}
+
+// CacherStatus implementation
+impl Serialize for CacherStatus {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("CacherStatus", 7)?;
+        state.serialize_field("last_cached_block", &self.last_cached_block)?;
+        state.serialize_field("chain_id", &self.chain_id)?;
+        state.serialize_field("protocol_version", &self.protocol_version)?;
+        state.serialize_field(
+            "next_cache_attempt_in_seconds",
+            &self.next_cache_attempt_in_seconds,
+        )?;
+        state.serialize_field("manifest_filename", &self.manifest_filename)?;
+        state.serialize_field("log_files_count", &self.log_files_count)?;
+        state.serialize_field("our_address", &self.our_address)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for CacherStatus {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        enum Field {
+            LastCachedBlock,
+            ChainId,
+            ProtocolVersion,
+            NextCacheAttemptInSeconds,
+            ManifestFilename,
+            LogFilesCount,
+            OurAddress,
+        }
+
+        struct CacherStatusVisitor;
+
+        impl<'de> Visitor<'de> for CacherStatusVisitor {
+            type Value = CacherStatus;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct CacherStatus")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<CacherStatus, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut last_cached_block = None;
+                let mut chain_id = None;
+                let mut protocol_version = None;
+                let mut next_cache_attempt_in_seconds = None;
+                let mut manifest_filename = None;
+                let mut log_files_count = None;
+                let mut our_address = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::LastCachedBlock => {
+                            if last_cached_block.is_some() {
+                                return Err(de::Error::duplicate_field("last_cached_block"));
+                            }
+                            last_cached_block = Some(map.next_value()?);
+                        }
+                        Field::ChainId => {
+                            if chain_id.is_some() {
+                                return Err(de::Error::duplicate_field("chain_id"));
+                            }
+                            chain_id = Some(map.next_value()?);
+                        }
+                        Field::ProtocolVersion => {
+                            if protocol_version.is_some() {
+                                return Err(de::Error::duplicate_field("protocol_version"));
+                            }
+                            protocol_version = Some(map.next_value()?);
+                        }
+                        Field::NextCacheAttemptInSeconds => {
+                            if next_cache_attempt_in_seconds.is_some() {
+                                return Err(de::Error::duplicate_field(
+                                    "next_cache_attempt_in_seconds",
+                                ));
+                            }
+                            next_cache_attempt_in_seconds = Some(map.next_value()?);
+                        }
+                        Field::ManifestFilename => {
+                            if manifest_filename.is_some() {
+                                return Err(de::Error::duplicate_field("manifest_filename"));
+                            }
+                            manifest_filename = Some(map.next_value()?);
+                        }
+                        Field::LogFilesCount => {
+                            if log_files_count.is_some() {
+                                return Err(de::Error::duplicate_field("log_files_count"));
+                            }
+                            log_files_count = Some(map.next_value()?);
+                        }
+                        Field::OurAddress => {
+                            if our_address.is_some() {
+                                return Err(de::Error::duplicate_field("our_address"));
+                            }
+                            our_address = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let last_cached_block = last_cached_block
+                    .ok_or_else(|| de::Error::missing_field("last_cached_block"))?;
+                let chain_id = chain_id.ok_or_else(|| de::Error::missing_field("chain_id"))?;
+                let protocol_version =
+                    protocol_version.ok_or_else(|| de::Error::missing_field("protocol_version"))?;
+                let manifest_filename = manifest_filename
+                    .ok_or_else(|| de::Error::missing_field("manifest_filename"))?;
+                let log_files_count =
+                    log_files_count.ok_or_else(|| de::Error::missing_field("log_files_count"))?;
+                let our_address =
+                    our_address.ok_or_else(|| de::Error::missing_field("our_address"))?;
+
+                Ok(CacherStatus {
+                    last_cached_block,
+                    chain_id,
+                    protocol_version,
+                    next_cache_attempt_in_seconds,
+                    manifest_filename,
+                    log_files_count,
+                    our_address,
+                })
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "CacherStatus",
+            &[
+                "last_cached_block",
+                "chain_id",
+                "protocol_version",
+                "next_cache_attempt_in_seconds",
+                "manifest_filename",
+                "log_files_count",
+                "our_address",
+            ],
+            CacherStatusVisitor,
+        )
+    }
+}
+
+// CacherRequest implementation (enum)
+impl Serialize for CacherRequest {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            CacherRequest::GetManifest => {
+                let mut state = serializer.serialize_struct("CacherRequest", 1)?;
+                state.serialize_field("type", "GetManifest")?;
+                state.end()
+            }
+            CacherRequest::GetLogCacheContent(path) => {
+                let mut state = serializer.serialize_struct("CacherRequest", 2)?;
+                state.serialize_field("type", "GetLogCacheContent")?;
+                state.serialize_field("path", path)?;
+                state.end()
+            }
+            CacherRequest::GetStatus => {
+                let mut state = serializer.serialize_struct("CacherRequest", 1)?;
+                state.serialize_field("type", "GetStatus")?;
+                state.end()
+            }
+            CacherRequest::GetLogsByRange(request) => {
+                let mut state = serializer.serialize_struct("CacherRequest", 2)?;
+                state.serialize_field("type", "GetLogsByRange")?;
+                state.serialize_field("request", request)?;
+                state.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for CacherRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "camelCase")]
+        enum Field {
+            Type,
+            Path,
+            Request,
+        }
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        enum RequestType {
+            GetManifest,
+            GetLogCacheContent,
+            GetStatus,
+            GetLogsByRange,
+        }
+
+        struct CacherRequestVisitor;
+
+        impl<'de> Visitor<'de> for CacherRequestVisitor {
+            type Value = CacherRequest;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct CacherRequest")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<CacherRequest, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut request_type = None;
+                let mut path = None;
+                let mut request = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Type => {
+                            if request_type.is_some() {
+                                return Err(de::Error::duplicate_field("type"));
+                            }
+                            request_type = Some(map.next_value()?);
+                        }
+                        Field::Path => {
+                            if path.is_some() {
+                                return Err(de::Error::duplicate_field("path"));
+                            }
+                            path = Some(map.next_value()?);
+                        }
+                        Field::Request => {
+                            if request.is_some() {
+                                return Err(de::Error::duplicate_field("request"));
+                            }
+                            request = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let request_type = request_type.ok_or_else(|| de::Error::missing_field("type"))?;
+
+                match request_type {
+                    RequestType::GetManifest => Ok(CacherRequest::GetManifest),
+                    RequestType::GetLogCacheContent => {
+                        let path = path.ok_or_else(|| de::Error::missing_field("path"))?;
+                        Ok(CacherRequest::GetLogCacheContent(path))
+                    }
+                    RequestType::GetStatus => Ok(CacherRequest::GetStatus),
+                    RequestType::GetLogsByRange => {
+                        let request = request.ok_or_else(|| de::Error::missing_field("request"))?;
+                        Ok(CacherRequest::GetLogsByRange(request))
+                    }
+                }
+            }
+        }
+
+        deserializer.deserialize_map(CacherRequestVisitor)
+    }
+}
+
+// CacherResponse implementation (enum)
+impl Serialize for CacherResponse {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            CacherResponse::GetManifest(manifest) => {
+                let mut state = serializer.serialize_struct("CacherResponse", 2)?;
+                state.serialize_field("type", "GetManifest")?;
+                state.serialize_field("manifest", manifest)?;
+                state.end()
+            }
+            CacherResponse::GetLogCacheContent(result) => {
+                let mut state = serializer.serialize_struct("CacherResponse", 2)?;
+                state.serialize_field("type", "GetLogCacheContent")?;
+                state.serialize_field("result", result)?;
+                state.end()
+            }
+            CacherResponse::GetStatus(status) => {
+                let mut state = serializer.serialize_struct("CacherResponse", 2)?;
+                state.serialize_field("type", "GetStatus")?;
+                state.serialize_field("status", status)?;
+                state.end()
+            }
+            CacherResponse::GetLogsByRange(result) => {
+                let mut state = serializer.serialize_struct("CacherResponse", 2)?;
+                state.serialize_field("type", "GetLogsByRange")?;
+                state.serialize_field("result", result)?;
+                state.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for CacherResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "camelCase")]
+        enum Field {
+            Type,
+            Manifest,
+            Result,
+            Status,
+        }
+
+        #[derive(Deserialize, PartialEq)]
+        #[serde(rename_all = "camelCase")]
+        enum ResponseType {
+            GetManifest,
+            GetLogCacheContent,
+            GetStatus,
+            GetLogsByRange,
+        }
+
+        struct CacherResponseVisitor;
+
+        impl<'de> Visitor<'de> for CacherResponseVisitor {
+            type Value = CacherResponse;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct CacherResponse")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<CacherResponse, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut response_type = None;
+                let mut manifest = None;
+                let mut result: Option<Result<Option<String>, String>> = None;
+                let mut logs_result: Option<Result<String, String>> = None;
+                let mut status = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Type => {
+                            if response_type.is_some() {
+                                return Err(de::Error::duplicate_field("type"));
+                            }
+                            response_type = Some(map.next_value()?);
+                        }
+                        Field::Manifest => {
+                            if manifest.is_some() {
+                                return Err(de::Error::duplicate_field("manifest"));
+                            }
+                            manifest = Some(map.next_value()?);
+                        }
+                        Field::Result => {
+                            if response_type == Some(ResponseType::GetLogsByRange) {
+                                if logs_result.is_some() {
+                                    return Err(de::Error::duplicate_field("result"));
+                                }
+                                logs_result = Some(map.next_value()?);
+                            } else {
+                                if result.is_some() {
+                                    return Err(de::Error::duplicate_field("result"));
+                                }
+                                result = Some(map.next_value()?);
+                            }
+                        }
+                        Field::Status => {
+                            if status.is_some() {
+                                return Err(de::Error::duplicate_field("status"));
+                            }
+                            status = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let response_type =
+                    response_type.ok_or_else(|| de::Error::missing_field("type"))?;
+
+                match response_type {
+                    ResponseType::GetManifest => {
+                        let manifest =
+                            manifest.ok_or_else(|| de::Error::missing_field("manifest"))?;
+                        Ok(CacherResponse::GetManifest(manifest))
+                    }
+                    ResponseType::GetLogCacheContent => {
+                        let result = result.ok_or_else(|| de::Error::missing_field("result"))?;
+                        Ok(CacherResponse::GetLogCacheContent(result))
+                    }
+                    ResponseType::GetStatus => {
+                        let status = status.ok_or_else(|| de::Error::missing_field("status"))?;
+                        Ok(CacherResponse::GetStatus(status))
+                    }
+                    ResponseType::GetLogsByRange => {
+                        let result =
+                            logs_result.ok_or_else(|| de::Error::missing_field("result"))?;
+                        Ok(CacherResponse::GetLogsByRange(result))
+                    }
+                }
+            }
+        }
+
+        deserializer.deserialize_map(CacherResponseVisitor)
+    }
+}
+
+impl Serialize for LogsMetadata {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("LogsMetadata", 6)?;
+        state.serialize_field("chainId", &self.chain_id)?;
+        state.serialize_field("fromBlock", &self.from_block)?;
+        state.serialize_field("toBlock", &self.to_block)?;
+        state.serialize_field("timeCreated", &self.time_created)?;
+        state.serialize_field("createdBy", &self.created_by)?;
+        state.serialize_field("signature", &self.signature)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for LogsMetadata {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "camelCase")]
+        enum Field {
+            ChainId,
+            FromBlock,
+            ToBlock,
+            TimeCreated,
+            CreatedBy,
+            Signature,
+        }
+
+        struct LogsMetadataVisitor;
+
+        impl<'de> Visitor<'de> for LogsMetadataVisitor {
+            type Value = LogsMetadata;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct LogsMetadata")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<LogsMetadata, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut chain_id = None;
+                let mut from_block = None;
+                let mut to_block = None;
+                let mut time_created = None;
+                let mut created_by = None;
+                let mut signature = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::ChainId => {
+                            if chain_id.is_some() {
+                                return Err(de::Error::duplicate_field("chainId"));
+                            }
+                            chain_id = Some(map.next_value()?);
+                        }
+                        Field::FromBlock => {
+                            if from_block.is_some() {
+                                return Err(de::Error::duplicate_field("fromBlock"));
+                            }
+                            from_block = Some(map.next_value()?);
+                        }
+                        Field::ToBlock => {
+                            if to_block.is_some() {
+                                return Err(de::Error::duplicate_field("toBlock"));
+                            }
+                            to_block = Some(map.next_value()?);
+                        }
+                        Field::TimeCreated => {
+                            if time_created.is_some() {
+                                return Err(de::Error::duplicate_field("timeCreated"));
+                            }
+                            time_created = Some(map.next_value()?);
+                        }
+                        Field::CreatedBy => {
+                            if created_by.is_some() {
+                                return Err(de::Error::duplicate_field("createdBy"));
+                            }
+                            created_by = Some(map.next_value()?);
+                        }
+                        Field::Signature => {
+                            if signature.is_some() {
+                                return Err(de::Error::duplicate_field("signature"));
+                            }
+                            signature = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let chain_id = chain_id.ok_or_else(|| de::Error::missing_field("chainId"))?;
+                let from_block = from_block.ok_or_else(|| de::Error::missing_field("fromBlock"))?;
+                let to_block = to_block.ok_or_else(|| de::Error::missing_field("toBlock"))?;
+                let time_created =
+                    time_created.ok_or_else(|| de::Error::missing_field("timeCreated"))?;
+                let created_by = created_by.ok_or_else(|| de::Error::missing_field("createdBy"))?;
+                let signature = signature.ok_or_else(|| de::Error::missing_field("signature"))?;
+
+                Ok(LogsMetadata {
+                    chain_id,
+                    from_block,
+                    to_block,
+                    time_created,
+                    created_by,
+                    signature,
+                })
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "LogsMetadata",
+            &[
+                "chainId",
+                "fromBlock",
+                "toBlock",
+                "timeCreated",
+                "createdBy",
+                "signature",
+            ],
+            LogsMetadataVisitor,
         )
     }
 }
