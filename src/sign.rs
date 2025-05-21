@@ -18,7 +18,7 @@ pub fn net_key_verify(
         .body(
             serde_json::json!({
                 "NetKeyVerify": {
-                    "from": signer,
+                    "node": signer,
                     "signature": signature,
                 }
             })
