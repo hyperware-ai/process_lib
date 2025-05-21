@@ -313,18 +313,29 @@ where
 /// See if we have the [`Capability`] to message a certain process.
 /// Note if you have not saved the [`Capability`], you will not be able to message the other process.
 pub fn can_message(address: &Address) -> bool {
+    let address = eval_our(address);
     crate::our_capabilities()
         .iter()
-        .any(|cap| cap.params == "\"messaging\"" && cap.issuer == *address)
+        .any(|cap| cap.params == "\"messaging\"" && cap.issuer == address)
 }
 
 /// Get a [`Capability`] in our store
 pub fn get_capability(issuer: &Address, params: &str) -> Option<Capability> {
+    let issuer = eval_our(issuer);
     let params = serde_json::from_str::<Value>(params).unwrap_or_default();
     crate::our_capabilities().into_iter().find(|cap| {
         let cap_params = serde_json::from_str::<Value>(&cap.params).unwrap_or_default();
-        cap.issuer == *issuer && params == cap_params
+        cap.issuer == issuer && params == cap_params
     })
+}
+
+pub fn eval_our(address: &Address) -> Address {
+    let mut address = address.clone();
+    if address.node() == "our" {
+        let our = crate::our();
+        address.node = our.node().to_string()
+    }
+    address
 }
 
 /// The `Spawn!()` macro is defined here as a no-op.
