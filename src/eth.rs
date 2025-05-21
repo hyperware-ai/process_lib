@@ -318,6 +318,11 @@ impl Provider {
             request_timeout,
         }
     }
+
+    pub fn get_chain_id(&self) -> u64 {
+        self.chain_id
+    }
+
     /// Sends a request based on the specified [`EthAction`] and parses the response.
     ///
     /// This function constructs a request targeting the Ethereum distribution system, serializes the provided [`EthAction`],
