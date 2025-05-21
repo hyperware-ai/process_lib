@@ -16,7 +16,7 @@ use contract::tokenCall;
 use serde::{
     self,
     de::{self, MapAccess, Visitor},
-    ser::SerializeStruct,
+    ser::{SerializeMap, SerializeStruct},
     Deserialize, Deserializer, Serialize, Serializer,
 };
 use std::collections::HashSet;
@@ -741,13 +741,10 @@ impl Hypermap {
         let request_from_block_val = from_block.unwrap_or(0);
 
         for node_address_str in nodes {
-            let Ok(cacher_process_address) = HyperAddress::from_str(&node_address_str) else {
-                print_to_terminal(
-                    1,
-                    &format!("Invalid cacher node address string: {}", node_address_str),
-                );
-                continue;
-            };
+            let cacher_process_address = HyperAddress::new(
+                &node_address_str,
+                ("hypermap-cacher", "hypermap-cacher", "sys"),
+            );
 
             print_to_terminal(
                 2,
@@ -1109,7 +1106,6 @@ impl<'de> Deserialize<'de> for ManifestItem {
     }
 }
 
-// Manifest implementation
 impl Serialize for Manifest {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -1209,7 +1205,6 @@ impl<'de> Deserialize<'de> for Manifest {
     }
 }
 
-// GetLogsByRangeRequest implementation
 impl Serialize for GetLogsByRangeRequest {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -1285,7 +1280,6 @@ impl<'de> Deserialize<'de> for GetLogsByRangeRequest {
     }
 }
 
-// CacherStatus implementation
 impl Serialize for CacherStatus {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -1433,7 +1427,6 @@ impl<'de> Deserialize<'de> for CacherStatus {
     }
 }
 
-// CacherRequest implementation (enum)
 impl Serialize for CacherRequest {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -1441,26 +1434,24 @@ impl Serialize for CacherRequest {
     {
         match self {
             CacherRequest::GetManifest => {
-                let mut state = serializer.serialize_struct("CacherRequest", 1)?;
-                state.serialize_field("type", "GetManifest")?;
-                state.end()
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("GetManifest", &())?;
+                map.end()
             }
             CacherRequest::GetLogCacheContent(path) => {
-                let mut state = serializer.serialize_struct("CacherRequest", 2)?;
-                state.serialize_field("type", "GetLogCacheContent")?;
-                state.serialize_field("path", path)?;
-                state.end()
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("GetLogCacheContent", path)?;
+                map.end()
             }
             CacherRequest::GetStatus => {
-                let mut state = serializer.serialize_struct("CacherRequest", 1)?;
-                state.serialize_field("type", "GetStatus")?;
-                state.end()
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("GetStatus", &())?;
+                map.end()
             }
             CacherRequest::GetLogsByRange(request) => {
-                let mut state = serializer.serialize_struct("CacherRequest", 2)?;
-                state.serialize_field("type", "GetLogsByRange")?;
-                state.serialize_field("request", request)?;
-                state.end()
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("GetLogsByRange", request)?;
+                map.end()
             }
         }
     }
@@ -1471,76 +1462,44 @@ impl<'de> Deserialize<'de> for CacherRequest {
     where
         D: Deserializer<'de>,
     {
-        #[derive(Deserialize)]
-        #[serde(field_identifier, rename_all = "camelCase")]
-        enum Field {
-            Type,
-            Path,
-            Request,
-        }
-
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        enum RequestType {
-            GetManifest,
-            GetLogCacheContent,
-            GetStatus,
-            GetLogsByRange,
-        }
-
         struct CacherRequestVisitor;
 
         impl<'de> Visitor<'de> for CacherRequestVisitor {
             type Value = CacherRequest;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("struct CacherRequest")
+                formatter
+                    .write_str("a map with a single key representing the CacherRequest variant")
             }
 
-            fn visit_map<V>(self, mut map: V) -> Result<CacherRequest, V::Error>
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
             where
-                V: MapAccess<'de>,
+                A: MapAccess<'de>,
             {
-                let mut request_type = None;
-                let mut path = None;
-                let mut request = None;
+                let (variant, value) = map
+                    .next_entry::<String, serde_json::Value>()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
 
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Field::Type => {
-                            if request_type.is_some() {
-                                return Err(de::Error::duplicate_field("type"));
-                            }
-                            request_type = Some(map.next_value()?);
-                        }
-                        Field::Path => {
-                            if path.is_some() {
-                                return Err(de::Error::duplicate_field("path"));
-                            }
-                            path = Some(map.next_value()?);
-                        }
-                        Field::Request => {
-                            if request.is_some() {
-                                return Err(de::Error::duplicate_field("request"));
-                            }
-                            request = Some(map.next_value()?);
-                        }
-                    }
-                }
-
-                let request_type = request_type.ok_or_else(|| de::Error::missing_field("type"))?;
-
-                match request_type {
-                    RequestType::GetManifest => Ok(CacherRequest::GetManifest),
-                    RequestType::GetLogCacheContent => {
-                        let path = path.ok_or_else(|| de::Error::missing_field("path"))?;
+                match variant.as_str() {
+                    "GetManifest" => Ok(CacherRequest::GetManifest),
+                    "GetLogCacheContent" => {
+                        let path = serde_json::from_value(value).map_err(de::Error::custom)?;
                         Ok(CacherRequest::GetLogCacheContent(path))
                     }
-                    RequestType::GetStatus => Ok(CacherRequest::GetStatus),
-                    RequestType::GetLogsByRange => {
-                        let request = request.ok_or_else(|| de::Error::missing_field("request"))?;
+                    "GetStatus" => Ok(CacherRequest::GetStatus),
+                    "GetLogsByRange" => {
+                        let request = serde_json::from_value(value).map_err(de::Error::custom)?;
                         Ok(CacherRequest::GetLogsByRange(request))
                     }
+                    _ => Err(de::Error::unknown_variant(
+                        &variant,
+                        &[
+                            "GetManifest",
+                            "GetLogCacheContent",
+                            "GetStatus",
+                            "GetLogsByRange",
+                        ],
+                    )),
                 }
             }
         }
@@ -1549,7 +1508,6 @@ impl<'de> Deserialize<'de> for CacherRequest {
     }
 }
 
-// CacherResponse implementation (enum)
 impl Serialize for CacherResponse {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -1557,28 +1515,24 @@ impl Serialize for CacherResponse {
     {
         match self {
             CacherResponse::GetManifest(manifest) => {
-                let mut state = serializer.serialize_struct("CacherResponse", 2)?;
-                state.serialize_field("type", "GetManifest")?;
-                state.serialize_field("manifest", manifest)?;
-                state.end()
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("GetManifest", manifest)?;
+                map.end()
             }
             CacherResponse::GetLogCacheContent(result) => {
-                let mut state = serializer.serialize_struct("CacherResponse", 2)?;
-                state.serialize_field("type", "GetLogCacheContent")?;
-                state.serialize_field("result", result)?;
-                state.end()
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("GetLogCacheContent", result)?;
+                map.end()
             }
             CacherResponse::GetStatus(status) => {
-                let mut state = serializer.serialize_struct("CacherResponse", 2)?;
-                state.serialize_field("type", "GetStatus")?;
-                state.serialize_field("status", status)?;
-                state.end()
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("GetStatus", status)?;
+                map.end()
             }
             CacherResponse::GetLogsByRange(result) => {
-                let mut state = serializer.serialize_struct("CacherResponse", 2)?;
-                state.serialize_field("type", "GetLogsByRange")?;
-                state.serialize_field("result", result)?;
-                state.end()
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("GetLogsByRange", result)?;
+                map.end()
             }
         }
     }
@@ -1589,101 +1543,50 @@ impl<'de> Deserialize<'de> for CacherResponse {
     where
         D: Deserializer<'de>,
     {
-        #[derive(Deserialize)]
-        #[serde(field_identifier, rename_all = "camelCase")]
-        enum Field {
-            Type,
-            Manifest,
-            Result,
-            Status,
-        }
-
-        #[derive(Deserialize, PartialEq)]
-        #[serde(rename_all = "camelCase")]
-        enum ResponseType {
-            GetManifest,
-            GetLogCacheContent,
-            GetStatus,
-            GetLogsByRange,
-        }
-
         struct CacherResponseVisitor;
 
         impl<'de> Visitor<'de> for CacherResponseVisitor {
             type Value = CacherResponse;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("struct CacherResponse")
+                formatter
+                    .write_str("a map with a single key representing the CacherResponse variant")
             }
 
-            fn visit_map<V>(self, mut map: V) -> Result<CacherResponse, V::Error>
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
             where
-                V: MapAccess<'de>,
+                A: MapAccess<'de>,
             {
-                let mut response_type = None;
-                let mut manifest = None;
-                let mut result: Option<Result<Option<String>, String>> = None;
-                let mut logs_result: Option<Result<String, String>> = None;
-                let mut status = None;
+                let (variant, value) = map
+                    .next_entry::<String, serde_json::Value>()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
 
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Field::Type => {
-                            if response_type.is_some() {
-                                return Err(de::Error::duplicate_field("type"));
-                            }
-                            response_type = Some(map.next_value()?);
-                        }
-                        Field::Manifest => {
-                            if manifest.is_some() {
-                                return Err(de::Error::duplicate_field("manifest"));
-                            }
-                            manifest = Some(map.next_value()?);
-                        }
-                        Field::Result => {
-                            if response_type == Some(ResponseType::GetLogsByRange) {
-                                if logs_result.is_some() {
-                                    return Err(de::Error::duplicate_field("result"));
-                                }
-                                logs_result = Some(map.next_value()?);
-                            } else {
-                                if result.is_some() {
-                                    return Err(de::Error::duplicate_field("result"));
-                                }
-                                result = Some(map.next_value()?);
-                            }
-                        }
-                        Field::Status => {
-                            if status.is_some() {
-                                return Err(de::Error::duplicate_field("status"));
-                            }
-                            status = Some(map.next_value()?);
-                        }
-                    }
-                }
-
-                let response_type =
-                    response_type.ok_or_else(|| de::Error::missing_field("type"))?;
-
-                match response_type {
-                    ResponseType::GetManifest => {
-                        let manifest =
-                            manifest.ok_or_else(|| de::Error::missing_field("manifest"))?;
+                match variant.as_str() {
+                    "GetManifest" => {
+                        let manifest = serde_json::from_value(value).map_err(de::Error::custom)?;
                         Ok(CacherResponse::GetManifest(manifest))
                     }
-                    ResponseType::GetLogCacheContent => {
-                        let result = result.ok_or_else(|| de::Error::missing_field("result"))?;
+                    "GetLogCacheContent" => {
+                        let result = serde_json::from_value(value).map_err(de::Error::custom)?;
                         Ok(CacherResponse::GetLogCacheContent(result))
                     }
-                    ResponseType::GetStatus => {
-                        let status = status.ok_or_else(|| de::Error::missing_field("status"))?;
+                    "GetStatus" => {
+                        let status = serde_json::from_value(value).map_err(de::Error::custom)?;
                         Ok(CacherResponse::GetStatus(status))
                     }
-                    ResponseType::GetLogsByRange => {
-                        let result =
-                            logs_result.ok_or_else(|| de::Error::missing_field("result"))?;
+                    "GetLogsByRange" => {
+                        let result = serde_json::from_value(value).map_err(de::Error::custom)?;
                         Ok(CacherResponse::GetLogsByRange(result))
                     }
+                    _ => Err(de::Error::unknown_variant(
+                        &variant,
+                        &[
+                            "GetManifest",
+                            "GetLogCacheContent",
+                            "GetStatus",
+                            "GetLogsByRange",
+                        ],
+                    )),
                 }
             }
         }
