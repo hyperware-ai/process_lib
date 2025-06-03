@@ -18,14 +18,12 @@ use serde_json::Value;
 
 wit_bindgen::generate!({
     path: "hyperware-wit",
+    world: "process-lib",
     generate_unused_types: true,
-    world: "lib",
 });
 
 /// Interact with the eth provider module.
 pub mod eth;
-/// Interact with the system homepage.
-///
 /// Your process must have the [`Capability`] to message
 /// `homepage:homepage:sys` to use this module.
 pub mod homepage;
@@ -41,6 +39,8 @@ pub mod hypermap;
 /// be incompatible with WIT types in some cases, leading to annoying errors.
 /// Use only to interact with the kernel or runtime in certain ways.
 pub mod kernel_types;
+/// Tools for exploring and working with Token-Bound Accounts (TBAs) in Hypermap
+//pub mod tba_explorer;
 /// Interact with the key_value module
 ///
 /// Your process must have the [`Capability`] to message and receive messages from
@@ -54,6 +54,9 @@ pub mod logging;
 /// Your process must have the [`Capability`] to message and receive messages from
 /// `net:distro:sys` to use this module.
 pub mod net;
+/// Low-level Ethereum signing operations and key management.
+pub mod signer;
+pub mod sign;
 /// Interact with the sqlite module
 ///
 /// Your process must have the [`Capability] to message and receive messages from
@@ -68,6 +71,8 @@ pub mod timer;
 /// Your process must have the [`Capability`] to message and receive messages from
 /// `vfs:distro:sys` to use this module.
 pub mod vfs;
+/// Ethereum wallet management with transaction preparation and submission.
+pub mod wallet;
 
 /// A set of types and macros for writing "script" processes.
 pub mod scripting;
@@ -312,18 +317,29 @@ where
 /// See if we have the [`Capability`] to message a certain process.
 /// Note if you have not saved the [`Capability`], you will not be able to message the other process.
 pub fn can_message(address: &Address) -> bool {
+    let address = eval_our(address);
     crate::our_capabilities()
         .iter()
-        .any(|cap| cap.params == "\"messaging\"" && cap.issuer == *address)
+        .any(|cap| cap.params == "\"messaging\"" && cap.issuer == address)
 }
 
 /// Get a [`Capability`] in our store
 pub fn get_capability(issuer: &Address, params: &str) -> Option<Capability> {
+    let issuer = eval_our(issuer);
     let params = serde_json::from_str::<Value>(params).unwrap_or_default();
     crate::our_capabilities().into_iter().find(|cap| {
         let cap_params = serde_json::from_str::<Value>(&cap.params).unwrap_or_default();
-        cap.issuer == *issuer && params == cap_params
+        cap.issuer == issuer && params == cap_params
     })
+}
+
+pub fn eval_our(address: &Address) -> Address {
+    let mut address = address.clone();
+    if address.node() == "our" {
+        let our = crate::our();
+        address.node = our.node().to_string()
+    }
+    address
 }
 
 /// The `Spawn!()` macro is defined here as a no-op.
