@@ -54,9 +54,9 @@ pub mod logging;
 /// Your process must have the [`Capability`] to message and receive messages from
 /// `net:distro:sys` to use this module.
 pub mod net;
+pub mod sign;
 /// Low-level Ethereum signing operations and key management.
 pub mod signer;
-pub mod sign;
 /// Interact with the sqlite module
 ///
 /// Your process must have the [`Capability] to message and receive messages from
