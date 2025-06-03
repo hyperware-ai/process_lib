@@ -18,8 +18,8 @@ use serde_json::Value;
 
 wit_bindgen::generate!({
     path: "hyperware-wit",
+    world: "process-lib",
     generate_unused_types: true,
-    world: "lib",
 });
 
 /// Interact with the eth provider module.
@@ -56,6 +56,7 @@ pub mod logging;
 pub mod net;
 /// Low-level Ethereum signing operations and key management.
 pub mod signer;
+pub mod sign;
 /// Interact with the sqlite module
 ///
 /// Your process must have the [`Capability] to message and receive messages from
@@ -81,7 +82,7 @@ pub use types::{
     address::{Address, AddressParseError},
     capability::Capability,
     lazy_load_blob::LazyLoadBlob,
-    message::{Message, _wit_message_to_message},
+    message::{BuildError, Message, _wit_message_to_message},
     on_exit::OnExit,
     package_id::PackageId,
     process_id::{ProcessId, ProcessIdParseError},
@@ -316,18 +317,29 @@ where
 /// See if we have the [`Capability`] to message a certain process.
 /// Note if you have not saved the [`Capability`], you will not be able to message the other process.
 pub fn can_message(address: &Address) -> bool {
+    let address = eval_our(address);
     crate::our_capabilities()
         .iter()
-        .any(|cap| cap.params == "\"messaging\"" && cap.issuer == *address)
+        .any(|cap| cap.params == "\"messaging\"" && cap.issuer == address)
 }
 
 /// Get a [`Capability`] in our store
 pub fn get_capability(issuer: &Address, params: &str) -> Option<Capability> {
+    let issuer = eval_our(issuer);
     let params = serde_json::from_str::<Value>(params).unwrap_or_default();
     crate::our_capabilities().into_iter().find(|cap| {
         let cap_params = serde_json::from_str::<Value>(&cap.params).unwrap_or_default();
-        cap.issuer == *issuer && params == cap_params
+        cap.issuer == issuer && params == cap_params
     })
+}
+
+pub fn eval_our(address: &Address) -> Address {
+    let mut address = address.clone();
+    if address.node() == "our" {
+        let our = crate::our();
+        address.node = our.node().to_string()
+    }
+    address
 }
 
 /// The `Spawn!()` macro is defined here as a no-op.

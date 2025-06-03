@@ -27,7 +27,7 @@ pub enum Message {
     },
 }
 
-#[derive(Debug, Error, Serialize, Deserialize)]
+#[derive(Clone, Debug, Error, Serialize, Deserialize)]
 pub enum BuildError {
     #[error("no body set for message")]
     NoBody,
