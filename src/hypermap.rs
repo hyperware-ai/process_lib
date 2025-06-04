@@ -471,7 +471,7 @@ pub fn resolve_full_name(log: &crate::eth::Log, timeout: Option<u64>) -> Option<
     Some(format!("{name}.{parent_name}"))
 }
 
-pub fn eth_apply_filter(logs: &[EthLog], filter: &EthFilter) -> anyhow::Result<Vec<EthLog>> {
+pub fn eth_apply_filter(logs: &[EthLog], filter: &EthFilter) -> Vec<EthLog> {
     let mut matched_logs = Vec::new();
 
     let (filter_from_block, filter_to_block) = match filter.block_option {
@@ -542,7 +542,7 @@ pub fn eth_apply_filter(logs: &[EthLog], filter: &EthFilter) -> anyhow::Result<V
             matched_logs.push(log.clone());
         }
     }
-    Ok(matched_logs)
+    matched_logs
 }
 
 /// Helper struct for reading from the hypermap.
@@ -1084,7 +1084,7 @@ impl Hypermap {
 
         let mut results_per_filter: Vec<Vec<EthLog>> = Vec::new();
         for filter in filters {
-            let filtered_logs = eth_apply_filter(&consolidated_logs, &filter)?;
+            let filtered_logs = eth_apply_filter(&consolidated_logs, &filter);
             results_per_filter.push(filtered_logs);
         }
 
@@ -1920,7 +1920,7 @@ impl<'de> Deserialize<'de> for GetLogsByRangeOkResponse {
                 match variant.as_str() {
                     "Logs" => {
                         let tuple = serde_json::from_value(value).map_err(de::Error::custom)?;
-                        Ok(GetLogsByRangeOkResponse::Latest(tuple))
+                        Ok(GetLogsByRangeOkResponse::Logs(tuple))
                     }
                     "Latest" => {
                         let block = serde_json::from_value(value).map_err(de::Error::custom)?;
