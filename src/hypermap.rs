@@ -1566,6 +1566,16 @@ impl Serialize for CacherRequest {
                 map.serialize_entry("StopProviding", &())?;
                 map.end()
             }
+            CacherRequest::SetNodes(nodes) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("SetNodes", nodes)?;
+                map.end()
+            }
+            CacherRequest::Reset(nodes) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("Reset", nodes)?;
+                map.end()
+            }
         }
     }
 }
@@ -1606,6 +1616,14 @@ impl<'de> Deserialize<'de> for CacherRequest {
                     }
                     "StartProviding" => Ok(CacherRequest::StartProviding),
                     "StopProviding" => Ok(CacherRequest::StopProviding),
+                    "SetNodes" => {
+                        let nodes = serde_json::from_value(value).map_err(de::Error::custom)?;
+                        Ok(CacherRequest::SetNodes(nodes))
+                    }
+                    "Reset" => {
+                        let nodes = serde_json::from_value(value).map_err(de::Error::custom)?;
+                        Ok(CacherRequest::Reset(nodes))
+                    }
                     _ => Err(de::Error::unknown_variant(
                         &variant,
                         &[
@@ -1615,6 +1633,8 @@ impl<'de> Deserialize<'de> for CacherRequest {
                             "GetLogsByRange",
                             "StartProviding",
                             "StopProviding",
+                            "SetNodes",
+                            "Reset",
                         ],
                     )),
                 }
@@ -1671,6 +1691,16 @@ impl Serialize for CacherResponse {
                 map.serialize_entry("IsStarting", &())?;
                 map.end()
             }
+            CacherResponse::SetNodes(result) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("SetNodes", result)?;
+                map.end()
+            }
+            CacherResponse::Reset(result) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("Reset", result)?;
+                map.end()
+            }
         }
     }
 }
@@ -1725,6 +1755,14 @@ impl<'de> Deserialize<'de> for CacherResponse {
                     }
                     "Rejected" => Ok(CacherResponse::Rejected),
                     "IsStarting" => Ok(CacherResponse::IsStarting),
+                    "SetNodes" => {
+                        let result = serde_json::from_value(value).map_err(de::Error::custom)?;
+                        Ok(CacherResponse::SetNodes(result))
+                    }
+                    "Reset" => {
+                        let result = serde_json::from_value(value).map_err(de::Error::custom)?;
+                        Ok(CacherResponse::Reset(result))
+                    }
                     _ => Err(de::Error::unknown_variant(
                         &variant,
                         &[
@@ -1736,6 +1774,8 @@ impl<'de> Deserialize<'de> for CacherResponse {
                             "StopProviding",
                             "Rejected",
                             "IsStarting",
+                            "SetNodes",
+                            "Reset",
                         ],
                     )),
                 }
