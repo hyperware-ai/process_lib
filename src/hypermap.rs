@@ -3,8 +3,8 @@ use crate::eth::{
 };
 use crate::hypermap::contract::getCall;
 use crate::hyperware::process::hypermap_cacher::{
-    CacherRequest, CacherResponse, CacherStatus, GetLogsByRangeRequest, LogsMetadata, Manifest,
-    ManifestItem,
+    CacherRequest, CacherResponse, CacherStatus, GetLogsByRangeOkResponse, GetLogsByRangeRequest,
+    LogsMetadata, Manifest, ManifestItem,
 };
 use crate::{net, sign};
 use crate::{print_to_terminal, Address as HyperAddress, Request};
@@ -716,7 +716,7 @@ impl Hypermap {
         from_block: Option<u64>,
         retry_params: Option<(u64, u64)>,
         chain: Option<String>,
-    ) -> anyhow::Result<Vec<LogCache>> {
+    ) -> anyhow::Result<(u64, Vec<LogCache>)> {
         print_to_terminal(2,
             &format!("get_bootstrap_log_cache (using local hypermap-cacher): from_block={:?}, retry_params={:?}, chain={:?}",
             from_block, retry_params, chain)
@@ -802,7 +802,13 @@ impl Hypermap {
             match serde_json::from_slice::<CacherResponse>(response_msg.body())? {
                 CacherResponse::GetLogsByRange(res) => {
                     match res {
-                        Ok(json_string_of_vec_log_cache) => {
+                        Ok(GetLogsByRangeOkResponse::Latest(block)) => {
+                            return Ok((block, vec![]));
+                        }
+                        Ok(GetLogsByRangeOkResponse::Logs((
+                            block,
+                            json_string_of_vec_log_cache,
+                        ))) => {
                             if json_string_of_vec_log_cache.is_empty()
                                 || json_string_of_vec_log_cache == "[]"
                             {
@@ -813,7 +819,7 @@ impl Hypermap {
                                         request_from_block_val,
                                     ),
                                 );
-                                return Ok(Vec::new());
+                                return Ok((block, vec![]));
                             }
                             match serde_json::from_str::<Vec<LogCache>>(
                                 &json_string_of_vec_log_cache,
@@ -822,7 +828,7 @@ impl Hypermap {
                                     let target_chain_id = chain.unwrap_or_else(|| {
                                         self.provider.get_chain_id().to_string()
                                     });
-                                    let mut filtered_caches = Vec::new();
+                                    let mut filtered_caches = vec![];
 
                                     for log_cache in retrieved_caches {
                                         if log_cache.metadata.chain_id == target_chain_id {
@@ -859,7 +865,7 @@ impl Hypermap {
                                             filtered_caches.len(),
                                         ),
                                     );
-                                    return Ok(filtered_caches);
+                                    return Ok((block, filtered_caches));
                                 }
                                 Err(e) => {
                                     return Err(anyhow::anyhow!(
@@ -950,7 +956,7 @@ impl Hypermap {
         from_block: Option<u64>,
         retry_params: Option<(u64, u64)>,
         chain: Option<String>,
-    ) -> anyhow::Result<Vec<EthLog>> {
+    ) -> anyhow::Result<(u64, Vec<EthLog>)> {
         print_to_terminal(
             2,
             &format!(
@@ -958,7 +964,7 @@ impl Hypermap {
                 from_block, retry_params, chain,
             ),
         );
-        let log_caches = self.get_bootstrap_log_cache(from_block, retry_params, chain)?;
+        let (block, log_caches) = self.get_bootstrap_log_cache(from_block, retry_params, chain)?;
 
         let mut all_valid_logs: Vec<EthLog> = Vec::new();
         let request_from_block_val = from_block.unwrap_or(0);
@@ -1021,7 +1027,7 @@ impl Hypermap {
                 unique_logs.len(),
             ),
         );
-        Ok(unique_logs)
+        Ok((block, unique_logs))
     }
 
     pub fn bootstrap(
@@ -1030,7 +1036,7 @@ impl Hypermap {
         filters: Vec<EthFilter>,
         retry_params: Option<(u64, u64)>,
         chain: Option<String>,
-    ) -> anyhow::Result<Vec<Vec<EthLog>>> {
+    ) -> anyhow::Result<(u64, Vec<Vec<EthLog>>)> {
         print_to_terminal(
             2,
             &format!(
@@ -1042,11 +1048,11 @@ impl Hypermap {
             ),
         );
 
-        let consolidated_logs = self.get_bootstrap(from_block, retry_params, chain)?;
+        let (block, consolidated_logs) = self.get_bootstrap(from_block, retry_params, chain)?;
 
         if consolidated_logs.is_empty() {
             print_to_terminal(2,"bootstrap: No logs retrieved after consolidation. Returning empty results for filters.");
-            return Ok(filters.iter().map(|_| Vec::new()).collect());
+            return Ok((block, filters.iter().map(|_| Vec::new()).collect()));
         }
 
         let mut results_per_filter: Vec<Vec<EthLog>> = Vec::new();
@@ -1062,7 +1068,7 @@ impl Hypermap {
                 results_per_filter.len(),
             ),
         );
-        Ok(results_per_filter)
+        Ok((block, results_per_filter))
     }
 }
 
@@ -1837,5 +1843,67 @@ impl<'de> Deserialize<'de> for LogsMetadata {
             ],
             LogsMetadataVisitor,
         )
+    }
+}
+
+impl Serialize for GetLogsByRangeOkResponse {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            GetLogsByRangeOkResponse::Logs(tuple) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("Logs", tuple)?;
+                map.end()
+            }
+            GetLogsByRangeOkResponse::Latest(block) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("Latest", block)?;
+                map.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for GetLogsByRangeOkResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct GetLogsByRangeOkResponseVisitor;
+
+        impl<'de> Visitor<'de> for GetLogsByRangeOkResponseVisitor {
+            type Value = GetLogsByRangeOkResponse;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str(
+                    "a map with a single key representing the GetLogsByRangeOkResponse variant",
+                )
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let (variant, value) = map
+                    .next_entry::<String, serde_json::Value>()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+
+                match variant.as_str() {
+                    "Logs" => {
+                        let tuple = serde_json::from_value(value).map_err(de::Error::custom)?;
+                        Ok(GetLogsByRangeOkResponse::Latest(tuple))
+                    }
+                    "Latest" => {
+                        let block = serde_json::from_value(value).map_err(de::Error::custom)?;
+                        Ok(GetLogsByRangeOkResponse::Latest(block))
+                    }
+                    _ => Err(de::Error::unknown_variant(&variant, &["Logs", "Latest"])),
+                }
+            }
+        }
+
+        deserializer.deserialize_map(GetLogsByRangeOkResponseVisitor)
     }
 }
