@@ -1,0 +1,5 @@
+world process-lib {
+    import sign;
+    import hypermap-cacher;
+    include lib;
+}
