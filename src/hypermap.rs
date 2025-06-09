@@ -3,8 +3,8 @@ use crate::eth::{
 };
 use crate::hypermap::contract::getCall;
 use crate::hyperware::process::hypermap_cacher::{
-    CacherRequest, CacherResponse, CacherStatus, GetLogsByRangeRequest, LogsMetadata, Manifest,
-    ManifestItem,
+    CacherRequest, CacherResponse, CacherStatus, GetLogsByRangeOkResponse, GetLogsByRangeRequest,
+    LogsMetadata, Manifest, ManifestItem,
 };
 use crate::{net, sign};
 use crate::{print_to_terminal, Address as HyperAddress, Request};
@@ -471,7 +471,7 @@ pub fn resolve_full_name(log: &crate::eth::Log, timeout: Option<u64>) -> Option<
     Some(format!("{name}.{parent_name}"))
 }
 
-pub fn eth_apply_filter(logs: &[EthLog], filter: &EthFilter) -> anyhow::Result<Vec<EthLog>> {
+pub fn eth_apply_filter(logs: &[EthLog], filter: &EthFilter) -> Vec<EthLog> {
     let mut matched_logs = Vec::new();
 
     let (filter_from_block, filter_to_block) = match filter.block_option {
@@ -542,7 +542,7 @@ pub fn eth_apply_filter(logs: &[EthLog], filter: &EthFilter) -> anyhow::Result<V
             matched_logs.push(log.clone());
         }
     }
-    Ok(matched_logs)
+    matched_logs
 }
 
 /// Helper struct for reading from the hypermap.
@@ -711,12 +711,177 @@ impl Hypermap {
         )
     }
 
+    fn get_bootstrap_log_cache_inner(
+        &self,
+        cacher_request: &CacherRequest,
+        cacher_process_address: &HyperAddress,
+        attempt: u64,
+        request_from_block_val: u64,
+        retry_delay_s: u64,
+        retry_count: Option<u64>,
+        chain: &Option<String>,
+    ) -> anyhow::Result<Option<(u64, Vec<LogCache>)>> {
+        let retry_count_str = retry_count
+            .map(|r| r.to_string())
+            .unwrap_or_else(|| "inf".to_string());
+        print_to_terminal(
+            2,
+            &format!("Attempt {attempt}/{retry_count_str} to query local hypermap-cacher"),
+        );
+
+        let response_msg = match Request::to(cacher_process_address.clone())
+            .body(serde_json::to_vec(cacher_request)?)
+            .send_and_await_response(CACHER_REQUEST_TIMEOUT_S)
+        {
+            Ok(Ok(msg)) => msg,
+            Ok(Err(e)) => {
+                print_to_terminal(
+                    1,
+                    &format!(
+                        "Error response from local cacher (attempt {}): {:?}",
+                        attempt, e
+                    ),
+                );
+                if retry_count.is_none() || attempt < retry_count.unwrap() {
+                    std::thread::sleep(std::time::Duration::from_secs(retry_delay_s));
+                    return Ok(None);
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Error response from local cacher after {retry_count_str} attempts: {e:?}"
+                    ));
+                }
+            }
+            Err(e) => {
+                print_to_terminal(
+                    1,
+                    &format!(
+                        "Failed to send request to local cacher (attempt {}): {:?}",
+                        attempt, e
+                    ),
+                );
+                if retry_count.is_none() || attempt < retry_count.unwrap() {
+                    std::thread::sleep(std::time::Duration::from_secs(retry_delay_s));
+                    return Ok(None);
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Failed to send request to local cacher after {retry_count_str} attempts: {e:?}"
+                    ));
+                }
+            }
+        };
+
+        match serde_json::from_slice::<CacherResponse>(response_msg.body())? {
+            CacherResponse::GetLogsByRange(res) => {
+                match res {
+                    Ok(GetLogsByRangeOkResponse::Latest(block)) => {
+                        return Ok(Some((block, vec![])));
+                    }
+                    Ok(GetLogsByRangeOkResponse::Logs((block, json_string_of_vec_log_cache))) => {
+                        if json_string_of_vec_log_cache.is_empty()
+                            || json_string_of_vec_log_cache == "[]"
+                        {
+                            print_to_terminal(
+                                    2,
+                                    &format!(
+                                        "Local cacher returned no log caches for the range from block {}.",
+                                        request_from_block_val,
+                                    ),
+                                );
+                            return Ok(Some((block, vec![])));
+                        }
+                        match serde_json::from_str::<Vec<LogCache>>(&json_string_of_vec_log_cache) {
+                            Ok(retrieved_caches) => {
+                                let target_chain_id = chain
+                                    .clone()
+                                    .unwrap_or_else(|| self.provider.get_chain_id().to_string());
+                                let mut filtered_caches = vec![];
+
+                                for log_cache in retrieved_caches {
+                                    if log_cache.metadata.chain_id == target_chain_id {
+                                        // Further filter: ensure the cache's own from_block isn't completely after what we need,
+                                        // and to_block isn't completely before.
+                                        let cache_from = log_cache
+                                            .metadata
+                                            .from_block
+                                            .parse::<u64>()
+                                            .unwrap_or(u64::MAX);
+                                        let cache_to =
+                                            log_cache.metadata.to_block.parse::<u64>().unwrap_or(0);
+
+                                        if cache_to >= request_from_block_val {
+                                            // Cache has some data at or after our request_from_block
+                                            filtered_caches.push(log_cache);
+                                        } else {
+                                            print_to_terminal(3, &format!("Cache from local cacher ({} to {}) does not meet request_from_block {}",
+                                                    cache_from, cache_to, request_from_block_val));
+                                        }
+                                    } else {
+                                        print_to_terminal(1,&format!("LogCache from local cacher has mismatched chain_id (expected {}, got {}). Skipping.",
+                                                target_chain_id, log_cache.metadata.chain_id));
+                                    }
+                                }
+
+                                print_to_terminal(
+                                    2,
+                                    &format!(
+                                        "Retrieved {} log caches from local hypermap-cacher.",
+                                        filtered_caches.len(),
+                                    ),
+                                );
+                                return Ok(Some((block, filtered_caches)));
+                            }
+                            Err(e) => {
+                                return Err(anyhow::anyhow!(
+                                        "Failed to deserialize Vec<LogCache> from local cacher: {:?}. JSON: {:.100}",
+                                        e, json_string_of_vec_log_cache
+                                    ));
+                            }
+                        }
+                    }
+                    Err(e_str) => {
+                        return Err(anyhow::anyhow!(
+                            "Local cacher reported error for GetLogsByRange: {}",
+                            e_str,
+                        ));
+                    }
+                }
+            }
+            CacherResponse::IsStarting => {
+                print_to_terminal(
+                        2,
+                        &format!(
+                            "Local hypermap-cacher is still starting (attempt {}/{}). Retrying in {}s...",
+                            attempt, retry_count_str, retry_delay_s
+                        ),
+                    );
+                if retry_count.is_none() || attempt < retry_count.unwrap() {
+                    std::thread::sleep(std::time::Duration::from_secs(retry_delay_s));
+                    return Ok(None);
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Local hypermap-cacher is still starting after {retry_count_str} attempts"
+                    ));
+                }
+            }
+            CacherResponse::Rejected => {
+                return Err(anyhow::anyhow!(
+                    "Local hypermap-cacher rejected our request"
+                ));
+            }
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unexpected response type from local hypermap-cacher"
+                ));
+            }
+        }
+    }
+
     pub fn get_bootstrap_log_cache(
         &self,
         from_block: Option<u64>,
-        retry_params: Option<(u64, u64)>,
+        retry_params: Option<(u64, Option<u64>)>,
         chain: Option<String>,
-    ) -> anyhow::Result<Vec<LogCache>> {
+    ) -> anyhow::Result<(u64, Vec<LogCache>)> {
         print_to_terminal(2,
             &format!("get_bootstrap_log_cache (using local hypermap-cacher): from_block={:?}, retry_params={:?}, chain={:?}",
             from_block, retry_params, chain)
@@ -745,172 +910,40 @@ impl Hypermap {
         };
         let cacher_request = CacherRequest::GetLogsByRange(get_logs_by_range_payload);
 
-        for attempt in 1..=retry_count {
-            print_to_terminal(
-                2,
-                &format!(
-                    "Attempt {}/{} to query local hypermap-cacher",
-                    attempt, retry_count
-                ),
-            );
-
-            let response_msg = match Request::to(cacher_process_address.clone())
-                .body(serde_json::to_vec(&cacher_request)?)
-                .send_and_await_response(CACHER_REQUEST_TIMEOUT_S)
-            {
-                Ok(Ok(msg)) => msg,
-                Ok(Err(e)) => {
-                    print_to_terminal(
-                        1,
-                        &format!(
-                            "Error response from local cacher (attempt {}): {:?}",
-                            attempt, e
-                        ),
-                    );
-                    if attempt < retry_count {
-                        std::thread::sleep(std::time::Duration::from_secs(retry_delay_s));
-                        continue;
-                    } else {
-                        return Err(anyhow::anyhow!(
-                            "Error response from local cacher after {} attempts: {:?}",
-                            retry_count,
-                            e
-                        ));
-                    }
+        if let Some(retry_count) = retry_count {
+            for attempt in 1..=retry_count {
+                if let Some(return_vals) = self.get_bootstrap_log_cache_inner(
+                    &cacher_request,
+                    &cacher_process_address,
+                    attempt,
+                    request_from_block_val,
+                    retry_delay_s,
+                    Some(retry_count),
+                    &chain,
+                )? {
+                    return Ok(return_vals);
                 }
-                Err(e) => {
-                    print_to_terminal(
-                        1,
-                        &format!(
-                            "Failed to send request to local cacher (attempt {}): {:?}",
-                            attempt, e
-                        ),
-                    );
-                    if attempt < retry_count {
-                        std::thread::sleep(std::time::Duration::from_secs(retry_delay_s));
-                        continue;
-                    } else {
-                        return Err(anyhow::anyhow!(
-                            "Failed to send request to local cacher after {} attempts: {:?}",
-                            retry_count,
-                            e
-                        ));
-                    }
+            }
+        } else {
+            let mut attempt = 1;
+            loop {
+                if let Some(return_vals) = self.get_bootstrap_log_cache_inner(
+                    &cacher_request,
+                    &cacher_process_address,
+                    attempt,
+                    request_from_block_val,
+                    retry_delay_s,
+                    None,
+                    &chain,
+                )? {
+                    return Ok(return_vals);
                 }
-            };
-
-            match serde_json::from_slice::<CacherResponse>(response_msg.body())? {
-                CacherResponse::GetLogsByRange(res) => {
-                    match res {
-                        Ok(json_string_of_vec_log_cache) => {
-                            if json_string_of_vec_log_cache.is_empty()
-                                || json_string_of_vec_log_cache == "[]"
-                            {
-                                print_to_terminal(
-                                    2,
-                                    &format!(
-                                        "Local cacher returned no log caches for the range from block {}.",
-                                        request_from_block_val,
-                                    ),
-                                );
-                                return Ok(Vec::new());
-                            }
-                            match serde_json::from_str::<Vec<LogCache>>(
-                                &json_string_of_vec_log_cache,
-                            ) {
-                                Ok(retrieved_caches) => {
-                                    let target_chain_id = chain.unwrap_or_else(|| {
-                                        self.provider.get_chain_id().to_string()
-                                    });
-                                    let mut filtered_caches = Vec::new();
-
-                                    for log_cache in retrieved_caches {
-                                        if log_cache.metadata.chain_id == target_chain_id {
-                                            // Further filter: ensure the cache's own from_block isn't completely after what we need,
-                                            // and to_block isn't completely before.
-                                            let cache_from = log_cache
-                                                .metadata
-                                                .from_block
-                                                .parse::<u64>()
-                                                .unwrap_or(u64::MAX);
-                                            let cache_to = log_cache
-                                                .metadata
-                                                .to_block
-                                                .parse::<u64>()
-                                                .unwrap_or(0);
-
-                                            if cache_to >= request_from_block_val {
-                                                // Cache has some data at or after our request_from_block
-                                                filtered_caches.push(log_cache);
-                                            } else {
-                                                print_to_terminal(3, &format!("Cache from local cacher ({} to {}) does not meet request_from_block {}",
-                                                    cache_from, cache_to, request_from_block_val));
-                                            }
-                                        } else {
-                                            print_to_terminal(1,&format!("LogCache from local cacher has mismatched chain_id (expected {}, got {}). Skipping.",
-                                                target_chain_id, log_cache.metadata.chain_id));
-                                        }
-                                    }
-
-                                    print_to_terminal(
-                                        2,
-                                        &format!(
-                                            "Retrieved {} log caches from local hypermap-cacher.",
-                                            filtered_caches.len(),
-                                        ),
-                                    );
-                                    return Ok(filtered_caches);
-                                }
-                                Err(e) => {
-                                    return Err(anyhow::anyhow!(
-                                        "Failed to deserialize Vec<LogCache> from local cacher: {:?}. JSON: {:.100}",
-                                        e, json_string_of_vec_log_cache
-                                    ));
-                                }
-                            }
-                        }
-                        Err(e_str) => {
-                            return Err(anyhow::anyhow!(
-                                "Local cacher reported error for GetLogsByRange: {}",
-                                e_str,
-                            ));
-                        }
-                    }
-                }
-                CacherResponse::IsStarting => {
-                    print_to_terminal(
-                        2,
-                        &format!(
-                            "Local hypermap-cacher is still starting (attempt {}/{}). Retrying in {}s...",
-                            attempt, retry_count, retry_delay_s
-                        ),
-                    );
-                    if attempt < retry_count {
-                        std::thread::sleep(std::time::Duration::from_secs(retry_delay_s));
-                        continue;
-                    } else {
-                        return Err(anyhow::anyhow!(
-                            "Local hypermap-cacher is still starting after {} attempts",
-                            retry_count
-                        ));
-                    }
-                }
-                CacherResponse::Rejected => {
-                    return Err(anyhow::anyhow!(
-                        "Local hypermap-cacher rejected our request"
-                    ));
-                }
-                _ => {
-                    return Err(anyhow::anyhow!(
-                        "Unexpected response type from local hypermap-cacher"
-                    ));
-                }
+                attempt += 1;
             }
         }
 
         Err(anyhow::anyhow!(
-            "Failed to get response from local hypermap-cacher after {} attempts",
-            retry_count
+            "Failed to get response from local hypermap-cacher after {retry_count:?} attempts"
         ))
     }
 
@@ -948,9 +981,9 @@ impl Hypermap {
     pub fn get_bootstrap(
         &self,
         from_block: Option<u64>,
-        retry_params: Option<(u64, u64)>,
+        retry_params: Option<(u64, Option<u64>)>,
         chain: Option<String>,
-    ) -> anyhow::Result<Vec<EthLog>> {
+    ) -> anyhow::Result<(u64, Vec<EthLog>)> {
         print_to_terminal(
             2,
             &format!(
@@ -958,7 +991,7 @@ impl Hypermap {
                 from_block, retry_params, chain,
             ),
         );
-        let log_caches = self.get_bootstrap_log_cache(from_block, retry_params, chain)?;
+        let (block, log_caches) = self.get_bootstrap_log_cache(from_block, retry_params, chain)?;
 
         let mut all_valid_logs: Vec<EthLog> = Vec::new();
         let request_from_block_val = from_block.unwrap_or(0);
@@ -1021,16 +1054,16 @@ impl Hypermap {
                 unique_logs.len(),
             ),
         );
-        Ok(unique_logs)
+        Ok((block, unique_logs))
     }
 
     pub fn bootstrap(
         &self,
         from_block: Option<u64>,
         filters: Vec<EthFilter>,
-        retry_params: Option<(u64, u64)>,
+        retry_params: Option<(u64, Option<u64>)>,
         chain: Option<String>,
-    ) -> anyhow::Result<Vec<Vec<EthLog>>> {
+    ) -> anyhow::Result<(u64, Vec<Vec<EthLog>>)> {
         print_to_terminal(
             2,
             &format!(
@@ -1042,16 +1075,16 @@ impl Hypermap {
             ),
         );
 
-        let consolidated_logs = self.get_bootstrap(from_block, retry_params, chain)?;
+        let (block, consolidated_logs) = self.get_bootstrap(from_block, retry_params, chain)?;
 
         if consolidated_logs.is_empty() {
             print_to_terminal(2,"bootstrap: No logs retrieved after consolidation. Returning empty results for filters.");
-            return Ok(filters.iter().map(|_| Vec::new()).collect());
+            return Ok((block, filters.iter().map(|_| Vec::new()).collect()));
         }
 
         let mut results_per_filter: Vec<Vec<EthLog>> = Vec::new();
         for filter in filters {
-            let filtered_logs = eth_apply_filter(&consolidated_logs, &filter)?;
+            let filtered_logs = eth_apply_filter(&consolidated_logs, &filter);
             results_per_filter.push(filtered_logs);
         }
 
@@ -1062,7 +1095,7 @@ impl Hypermap {
                 results_per_filter.len(),
             ),
         );
-        Ok(results_per_filter)
+        Ok((block, results_per_filter))
     }
 }
 
@@ -1533,6 +1566,16 @@ impl Serialize for CacherRequest {
                 map.serialize_entry("StopProviding", &())?;
                 map.end()
             }
+            CacherRequest::SetNodes(nodes) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("SetNodes", nodes)?;
+                map.end()
+            }
+            CacherRequest::Reset(nodes) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("Reset", nodes)?;
+                map.end()
+            }
         }
     }
 }
@@ -1573,6 +1616,14 @@ impl<'de> Deserialize<'de> for CacherRequest {
                     }
                     "StartProviding" => Ok(CacherRequest::StartProviding),
                     "StopProviding" => Ok(CacherRequest::StopProviding),
+                    "SetNodes" => {
+                        let nodes = serde_json::from_value(value).map_err(de::Error::custom)?;
+                        Ok(CacherRequest::SetNodes(nodes))
+                    }
+                    "Reset" => {
+                        let nodes = serde_json::from_value(value).map_err(de::Error::custom)?;
+                        Ok(CacherRequest::Reset(nodes))
+                    }
                     _ => Err(de::Error::unknown_variant(
                         &variant,
                         &[
@@ -1582,6 +1633,8 @@ impl<'de> Deserialize<'de> for CacherRequest {
                             "GetLogsByRange",
                             "StartProviding",
                             "StopProviding",
+                            "SetNodes",
+                            "Reset",
                         ],
                     )),
                 }
@@ -1638,6 +1691,16 @@ impl Serialize for CacherResponse {
                 map.serialize_entry("IsStarting", &())?;
                 map.end()
             }
+            CacherResponse::SetNodes(result) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("SetNodes", result)?;
+                map.end()
+            }
+            CacherResponse::Reset(result) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("Reset", result)?;
+                map.end()
+            }
         }
     }
 }
@@ -1692,6 +1755,14 @@ impl<'de> Deserialize<'de> for CacherResponse {
                     }
                     "Rejected" => Ok(CacherResponse::Rejected),
                     "IsStarting" => Ok(CacherResponse::IsStarting),
+                    "SetNodes" => {
+                        let result = serde_json::from_value(value).map_err(de::Error::custom)?;
+                        Ok(CacherResponse::SetNodes(result))
+                    }
+                    "Reset" => {
+                        let result = serde_json::from_value(value).map_err(de::Error::custom)?;
+                        Ok(CacherResponse::Reset(result))
+                    }
                     _ => Err(de::Error::unknown_variant(
                         &variant,
                         &[
@@ -1703,6 +1774,8 @@ impl<'de> Deserialize<'de> for CacherResponse {
                             "StopProviding",
                             "Rejected",
                             "IsStarting",
+                            "SetNodes",
+                            "Reset",
                         ],
                     )),
                 }
@@ -1837,5 +1910,67 @@ impl<'de> Deserialize<'de> for LogsMetadata {
             ],
             LogsMetadataVisitor,
         )
+    }
+}
+
+impl Serialize for GetLogsByRangeOkResponse {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            GetLogsByRangeOkResponse::Logs(tuple) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("Logs", tuple)?;
+                map.end()
+            }
+            GetLogsByRangeOkResponse::Latest(block) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("Latest", block)?;
+                map.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for GetLogsByRangeOkResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct GetLogsByRangeOkResponseVisitor;
+
+        impl<'de> Visitor<'de> for GetLogsByRangeOkResponseVisitor {
+            type Value = GetLogsByRangeOkResponse;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str(
+                    "a map with a single key representing the GetLogsByRangeOkResponse variant",
+                )
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let (variant, value) = map
+                    .next_entry::<String, serde_json::Value>()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+
+                match variant.as_str() {
+                    "Logs" => {
+                        let tuple = serde_json::from_value(value).map_err(de::Error::custom)?;
+                        Ok(GetLogsByRangeOkResponse::Logs(tuple))
+                    }
+                    "Latest" => {
+                        let block = serde_json::from_value(value).map_err(de::Error::custom)?;
+                        Ok(GetLogsByRangeOkResponse::Latest(block))
+                    }
+                    _ => Err(de::Error::unknown_variant(&variant, &["Logs", "Latest"])),
+                }
+            }
+        }
+
+        deserializer.deserialize_map(GetLogsByRangeOkResponseVisitor)
     }
 }
