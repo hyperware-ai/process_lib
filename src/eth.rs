@@ -306,8 +306,8 @@ impl<'de> Deserialize<'de> for NodeOrRpcUrl {
 /// for that chain.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Provider {
-    chain_id: u64,
-    request_timeout: u64,
+    pub chain_id: u64,
+    pub request_timeout: u64,
 }
 
 impl Provider {
@@ -761,21 +761,55 @@ impl Provider {
         print_verbosity_success: u8,
         print_verbosity_error: u8,
     ) {
+        let mut delay_secs = 5; // Initial delay
+        const MAX_DELAY_SECS: u64 = 60; // Maximum delay
+
         loop {
             match self.subscribe(sub_id, filter.clone()) {
-                Ok(()) => break,
-                Err(_) => {
+                Ok(()) => break, // Success, exit loop
+                Err(e) => {
+                    // Log the actual error
                     crate::print_to_terminal(
                         print_verbosity_error,
-                        "failed to subscribe to chain! trying again in 5s...",
+                        &format!(
+                            "Failed to subscribe to chain (sub_id {}): {:?}. Retrying in {}s...",
+                            sub_id, e, delay_secs
+                        ),
                     );
-                    std::thread::sleep(std::time::Duration::from_secs(5));
-                    continue;
+                    std::thread::sleep(std::time::Duration::from_secs(delay_secs));
+                    // Increase delay for next attempt, capped at maximum
+                    delay_secs = (delay_secs * 2).min(MAX_DELAY_SECS);
+                    continue; // Retry
                 }
             }
         }
-        crate::print_to_terminal(print_verbosity_success, "subscribed to logs successfully");
+        crate::print_to_terminal(
+            print_verbosity_success,
+            &format!("Subscribed successfully (sub_id {})", sub_id),
+        );
     }
+    //pub fn subscribe_loop(
+    //    &self,
+    //    sub_id: u64,
+    //    filter: Filter,
+    //    print_verbosity_success: u8,
+    //    print_verbosity_error: u8,
+    //) {
+    //    loop {
+    //        match self.subscribe(sub_id, filter.clone()) {
+    //            Ok(()) => break,
+    //            Err(_) => {
+    //                crate::print_to_terminal(
+    //                    print_verbosity_error,
+    //                    "failed to subscribe to chain! trying again in 5s...",
+    //                );
+    //                std::thread::sleep(std::time::Duration::from_secs(5));
+    //                continue;
+    //            }
+    //        }
+    //    }
+    //    crate::print_to_terminal(print_verbosity_success, "subscribed to logs successfully");
+    //}
 
     /// Unsubscribes from a previously created subscription.
     ///
