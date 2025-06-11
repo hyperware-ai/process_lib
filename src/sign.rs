@@ -124,7 +124,6 @@ impl<'de> Deserialize<'de> for NetKeyVerifyRequest {
         )
     }
 }
-
 impl Serialize for SignRequest {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -132,19 +131,18 @@ impl Serialize for SignRequest {
     {
         match self {
             SignRequest::NetKeySign => {
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("NetKeySign", &())?;
-                map.end()
+                // Unit variants serialize as just the variant name string
+                serializer.serialize_str("NetKeySign")
             }
             SignRequest::NetKeyVerify(request) => {
+                // Newtype variants serialize as {"VariantName": content}
                 let mut map = serializer.serialize_map(Some(1))?;
                 map.serialize_entry("NetKeyVerify", request)?;
                 map.end()
             }
             SignRequest::NetKeyMakeMessage => {
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("NetKeyMakeMessage", &())?;
-                map.end()
+                // Unit variants serialize as just the variant name string
+                serializer.serialize_str("NetKeyMakeMessage")
             }
         }
     }
@@ -161,7 +159,21 @@ impl<'de> Deserialize<'de> for SignRequest {
             type Value = SignRequest;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a map with a single key representing the SignRequest variant")
+                formatter.write_str("a string for unit variants or a map for other variants")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                match value {
+                    "NetKeySign" => Ok(SignRequest::NetKeySign),
+                    "NetKeyMakeMessage" => Ok(SignRequest::NetKeyMakeMessage),
+                    _ => Err(de::Error::unknown_variant(
+                        value,
+                        &["NetKeySign", "NetKeyVerify", "NetKeyMakeMessage"],
+                    )),
+                }
             }
 
             fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
@@ -172,13 +184,16 @@ impl<'de> Deserialize<'de> for SignRequest {
                     .next_entry::<String, serde_json::Value>()?
                     .ok_or_else(|| de::Error::invalid_length(0, &self))?;
 
+                // Ensure there are no extra entries
+                if map.next_entry::<String, serde_json::Value>()?.is_some() {
+                    return Err(de::Error::custom("unexpected extra entries in map"));
+                }
+
                 match variant.as_str() {
-                    "NetKeySign" => Ok(SignRequest::NetKeySign),
                     "NetKeyVerify" => {
                         let request = serde_json::from_value(value).map_err(de::Error::custom)?;
                         Ok(SignRequest::NetKeyVerify(request))
                     }
-                    "NetKeyMakeMessage" => Ok(SignRequest::NetKeyMakeMessage),
                     _ => Err(de::Error::unknown_variant(
                         &variant,
                         &["NetKeySign", "NetKeyVerify", "NetKeyMakeMessage"],
@@ -187,7 +202,7 @@ impl<'de> Deserialize<'de> for SignRequest {
             }
         }
 
-        deserializer.deserialize_map(SignRequestVisitor)
+        deserializer.deserialize_any(SignRequestVisitor)
     }
 }
 
@@ -198,19 +213,18 @@ impl Serialize for SignResponse {
     {
         match self {
             SignResponse::NetKeySign => {
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("NetKeySign", &())?;
-                map.end()
+                // Unit variants serialize as just the variant name string
+                serializer.serialize_str("NetKeySign")
             }
             SignResponse::NetKeyVerify(valid) => {
+                // Newtype variants serialize as {"VariantName": content}
                 let mut map = serializer.serialize_map(Some(1))?;
                 map.serialize_entry("NetKeyVerify", valid)?;
                 map.end()
             }
             SignResponse::NetKeyMakeMessage => {
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("NetKeyMakeMessage", &())?;
-                map.end()
+                // Unit variants serialize as just the variant name string
+                serializer.serialize_str("NetKeyMakeMessage")
             }
         }
     }
@@ -227,7 +241,21 @@ impl<'de> Deserialize<'de> for SignResponse {
             type Value = SignResponse;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a map with a single key representing the SignResponse variant")
+                formatter.write_str("a string for unit variants or a map for other variants")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                match value {
+                    "NetKeySign" => Ok(SignResponse::NetKeySign),
+                    "NetKeyMakeMessage" => Ok(SignResponse::NetKeyMakeMessage),
+                    _ => Err(de::Error::unknown_variant(
+                        value,
+                        &["NetKeySign", "NetKeyVerify", "NetKeyMakeMessage"],
+                    )),
+                }
             }
 
             fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
@@ -238,13 +266,16 @@ impl<'de> Deserialize<'de> for SignResponse {
                     .next_entry::<String, serde_json::Value>()?
                     .ok_or_else(|| de::Error::invalid_length(0, &self))?;
 
+                // Ensure there are no extra entries
+                if map.next_entry::<String, serde_json::Value>()?.is_some() {
+                    return Err(de::Error::custom("unexpected extra entries in map"));
+                }
+
                 match variant.as_str() {
-                    "NetKeySign" => Ok(SignResponse::NetKeySign),
                     "NetKeyVerify" => {
                         let valid = serde_json::from_value(value).map_err(de::Error::custom)?;
                         Ok(SignResponse::NetKeyVerify(valid))
                     }
-                    "NetKeyMakeMessage" => Ok(SignResponse::NetKeyMakeMessage),
                     _ => Err(de::Error::unknown_variant(
                         &variant,
                         &["NetKeySign", "NetKeyVerify", "NetKeyMakeMessage"],
@@ -253,6 +284,6 @@ impl<'de> Deserialize<'de> for SignResponse {
             }
         }
 
-        deserializer.deserialize_map(SignResponseVisitor)
+        deserializer.deserialize_any(SignResponseVisitor)
     }
 }
