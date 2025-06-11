@@ -280,7 +280,7 @@ impl Request {
                 metadata: self.metadata,
                 capabilities: self.capabilities,
             },
-            self.context.as_ref(),
+            self.context.as_ref().map(|v| &**v),
             self.blob.as_ref(),
         );
         Ok(())
