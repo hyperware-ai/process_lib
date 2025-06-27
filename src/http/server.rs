@@ -878,19 +878,17 @@ impl HttpServer {
         Ok(())
     }
 
-    /// Serve static files from a given directory by binding all of them
-    /// in http-server to their filesystem path.
-    ///
-    /// The directory is relative to the `pkg` folder within this package's drive.
-    ///
-    /// The config `static_content` field will be ignored in favor of the files' contents.
-    /// An error will be returned if the file does not exist.
-    pub fn serve_ui(
+    /// Helper function to traverse a UI directory and apply an operation to each file.
+    /// This is used by both serve_ui and unserve_ui to avoid code duplication.
+    fn traverse_ui_directory<F>(
         &mut self,
         directory: &str,
-        roots: Vec<&str>,
-        config: HttpBindingConfig,
-    ) -> Result<(), HttpServerError> {
+        roots: &[&str],
+        mut file_handler: F,
+    ) -> Result<(), HttpServerError>
+    where
+        F: FnMut(&mut Self, &str, &[&str], bool) -> Result<(), HttpServerError>,
+    {
         let our = crate::our();
         let initial_path = format!("{}/pkg/{}", our.package_id(), directory);
 
@@ -927,22 +925,17 @@ impl HttpServer {
                         queue.push_back(entry.path);
                     }
                     FileType::File => {
-                        // if it's a file, serve it statically at its path
-                        // if it's `index.html`, serve additionally as the root
-                        if entry.path.ends_with("index.html") {
-                            for root in &roots {
-                                self.serve_file_raw_path(
-                                    &entry.path,
-                                    vec![root, &entry.path.replace(&initial_path, "")],
-                                    config.clone(),
-                                )?;
+                        let relative_path = entry.path.replace(&initial_path, "");
+                        let is_index = entry.path.ends_with("index.html");
+
+                        // Call the handler with the file path and whether it's an index file
+                        file_handler(self, &entry.path, &[relative_path.as_str()], is_index)?;
+
+                        // If it's an index file, also handle the root paths
+                        if is_index {
+                            for root in roots {
+                                file_handler(self, &entry.path, &[root], true)?;
                             }
-                        } else {
-                            self.serve_file_raw_path(
-                                &entry.path,
-                                vec![&entry.path.replace(&initial_path, "")],
-                                config.clone(),
-                            )?;
                         }
                     }
                     _ => {
@@ -953,6 +946,40 @@ impl HttpServer {
         }
 
         Ok(())
+    }
+
+    /// Serve static files from a given directory by binding all of them
+    /// in http-server to their filesystem path.
+    ///
+    /// The directory is relative to the `pkg` folder within this package's drive.
+    ///
+    /// The config `static_content` field will be ignored in favor of the files' contents.
+    /// An error will be returned if the file does not exist.
+    pub fn serve_ui(
+        &mut self,
+        directory: &str,
+        roots: Vec<&str>,
+        config: HttpBindingConfig,
+    ) -> Result<(), HttpServerError> {
+        self.traverse_ui_directory(directory, &roots, |server, file_path, paths, _is_index| {
+            server.serve_file_raw_path(file_path, paths.to_vec(), config.clone())
+        })
+    }
+
+    /// Unserve static files from a given directory by unbinding all of them
+    /// from http-server that were previously bound by serve_ui.
+    ///
+    /// The directory is relative to the `pkg` folder within this package's drive.
+    ///
+    /// This mirrors the logic of serve_ui but calls unbind_http_path instead.
+    pub fn unserve_ui(&mut self, directory: &str, roots: Vec<&str>) -> Result<(), HttpServerError> {
+        self.traverse_ui_directory(directory, &roots, |server, _file_path, paths, _is_index| {
+            // Unbind each path that was bound
+            for path in paths {
+                server.unbind_http_path(*path)?;
+            }
+            Ok(())
+        })
     }
 
     /// Handle a WebSocket open event from the HTTP server.
