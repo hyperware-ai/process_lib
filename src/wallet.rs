@@ -23,45 +23,103 @@ use alloy_sol_types::{sol, SolCall};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use thiserror::Error;
+
+// Define UserOperation struct for ERC-4337
 sol! {
-    interface IERC20 {
-        function balanceOf(address who) external view returns (uint256);
-        function transfer(address to, uint256 value) external returns (bool);
-        function approve(address spender, uint256 value) external returns (bool);
-        function transferFrom(address from, address to, uint256 value) external returns (bool);
-        function allowance(address owner, address spender) external view returns (uint256);
-        function totalSupply() external view returns (uint256);
-        function decimals() external view returns (uint8);
-        function symbol() external view returns (string);
-        function name() external view returns (string);
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct UserOperation {
+        address sender;
+        uint256 nonce;
+        bytes initCode;
+        bytes callData;
+        uint256 callGasLimit;
+        uint256 verificationGasLimit;
+        uint256 preVerificationGas;
+        uint256 maxFeePerGas;
+        uint256 maxPriorityFeePerGas;
+        bytes paymasterAndData;
+        bytes signature;
     }
+}
 
-    interface IERC721 {
-        function balanceOf(address owner) external view returns (uint256);
-        function ownerOf(uint256 tokenId) external view returns (address);
-        function safeTransferFrom(address from, address to, uint256 tokenId) external;
-        function transferFrom(address from, address to, uint256 tokenId) external;
-        function approve(address to, uint256 tokenId) external;
-        function setApprovalForAll(address operator, bool approved) external;
-        function getApproved(uint256 tokenId) external view returns (address);
-        function isApprovedForAll(address owner, address operator) external view returns (bool);
-    }
+// Define contract interfaces
+pub mod contracts {
+    use alloy_sol_types::sol;
+    
+    sol! {
+        interface IERC20 {
+            function balanceOf(address who) external view returns (uint256);
+            function decimals() external view returns (uint8);
+            function symbol() external view returns (string);
+            function name() external view returns (string);
+            function totalSupply() external view returns (uint256);
+            function allowance(address owner, address spender) external view returns (uint256);
+            function transfer(address to, uint256 value) external returns (bool);
+            function approve(address spender, uint256 value) external returns (bool);
+            function transferFrom(address from, address to, uint256 value) external returns (bool);
+        }
 
-    interface IERC1155 {
-        function balanceOf(address account, uint256 id) external view returns (uint256);
-        function balanceOfBatch(address[] accounts, uint256[] ids) external view returns (uint256[]);
-        function setApprovalForAll(address operator, bool approved) external;
-        function isApprovedForAll(address account, address operator) external view returns (bool);
-        function safeTransferFrom(address from, address to, uint256 id, uint256 amount, bytes data) external;
-        function safeBatchTransferFrom(address from, address to, uint256[] ids, uint256[] amounts, bytes data) external;
-    }
+        interface IERC721 {
+            function balanceOf(address owner) external view returns (uint256);
+            function ownerOf(uint256 tokenId) external view returns (address);
+            function isApprovedForAll(address owner, address operator) external view returns (bool);
+            function safeTransferFrom(address from, address to, uint256 tokenId) external;
+            function setApprovalForAll(address operator, bool approved) external;
+        }
 
-    interface IERC6551Account {
-        function execute(address to, uint256 value, bytes calldata data, uint8 operation) external payable returns (bytes memory);
-        function execute(address to, uint256 value, bytes calldata data, uint8 operation, uint256 txGas) external payable returns (bytes memory);
-        function isValidSigner(address signer, bytes calldata data) external view returns (bytes4 magicValue);
-        function token() external view returns (uint256 chainId, address tokenContract, uint256 tokenId);
-        function setSignerDataKey(bytes32 signerDataKey) external;
+        interface IERC1155 {
+            function balanceOf(address account, uint256 id) external view returns (uint256);
+            function balanceOfBatch(address[] calldata accounts, uint256[] calldata ids) external view returns (uint256[] memory);
+            function isApprovedForAll(address account, address operator) external view returns (bool);
+            function setApprovalForAll(address operator, bool approved) external;
+            function safeTransferFrom(address from, address to, uint256 id, uint256 amount, bytes calldata data) external;
+            function safeBatchTransferFrom(address from, address to, uint256[] calldata ids, uint256[] calldata amounts, bytes calldata data) external;
+        }
+
+        interface IERC6551Account {
+            function execute(address to, uint256 value, bytes calldata data, uint8 operation) external payable returns (bytes memory);
+            function execute(address to, uint256 value, bytes calldata data, uint8 operation, uint256 txGas) external payable returns (bytes memory);
+            function isValidSigner(address signer, bytes calldata data) external view returns (bytes4 magicValue);
+            function token() external view returns (uint256 chainId, address tokenContract, uint256 tokenId);
+            function setSignerDataKey(bytes32 signerDataKey) external;
+        }
+
+        // ERC-4337 EntryPoint Interface
+        interface IEntryPoint {
+            function handleOps(bytes calldata packedOps, address payable beneficiary) external;
+            function getUserOpHash(bytes calldata packedUserOp) external view returns (bytes32);
+            function getNonce(address sender, uint192 key) external view returns (uint256);
+        }
+        
+        // ERC-4337 Account Interface
+        interface IAccount {
+            function validateUserOp(
+                bytes calldata packedUserOp,
+                bytes32 userOpHash,
+                uint256 missingAccountFunds
+            ) external returns (uint256 validationData);
+        }
+        
+        // ERC-4337 Paymaster Interface
+        interface IPaymaster {
+            enum PostOpMode {
+                opSucceeded,
+                opReverted,
+                postOpReverted
+            }
+            
+            function validatePaymasterUserOp(
+                bytes calldata packedUserOp,
+                bytes32 userOpHash,
+                uint256 maxCost
+            ) external returns (bytes memory context, uint256 validationData);
+            
+            function postOp(
+                PostOpMode mode,
+                bytes calldata context,
+                uint256 actualGasCost
+            ) external;
+        }
     }
 }
 
@@ -493,7 +551,7 @@ where
     }
 
     // Create the ERC-6551 execute call
-    let execute_call = IERC6551Account::execute_0Call {
+    let execute_call = contracts::IERC6551Account::execute_0Call {
         to: *hypermap.address(),
         value: U256::ZERO,
         data: hypermap_call_data,
@@ -787,7 +845,7 @@ pub fn erc20_balance_of(
 
     let owner = resolve_name(owner_address, provider.chain_id)?;
 
-    let call = IERC20::balanceOfCall { who: owner };
+    let call = contracts::IERC20::balanceOfCall { who: owner };
     let balance = call_view_function(token, call, provider)?;
 
     let decimals = erc20_decimals(token_address, provider)?;
@@ -803,7 +861,7 @@ pub fn erc20_decimals(token_address: &str, provider: &Provider) -> Result<u8, Wa
         Err(_) => resolve_name(token_address, provider.chain_id)?,
     };
 
-    let call = IERC20::decimalsCall {};
+    let call = contracts::IERC20::decimalsCall {};
     let decimals = call_view_function(token, call, provider)?;
     Ok(decimals._0)
 }
@@ -815,7 +873,7 @@ pub fn erc20_symbol(token_address: &str, provider: &Provider) -> Result<String, 
         Err(_) => resolve_name(token_address, provider.chain_id)?,
     };
 
-    let call = IERC20::symbolCall {};
+    let call = contracts::IERC20::symbolCall {};
     let symbol = call_view_function(token, call, provider)?;
     Ok(symbol._0)
 }
@@ -827,7 +885,7 @@ pub fn erc20_name(token_address: &str, provider: &Provider) -> Result<String, Wa
         Err(_) => resolve_name(token_address, provider.chain_id)?,
     };
 
-    let call = IERC20::nameCall {};
+    let call = contracts::IERC20::nameCall {};
     let name = call_view_function(token, call, provider)?;
     Ok(name._0)
 }
@@ -839,7 +897,7 @@ pub fn erc20_total_supply(token_address: &str, provider: &Provider) -> Result<U2
         Err(_) => resolve_name(token_address, provider.chain_id)?,
     };
 
-    let call = IERC20::totalSupplyCall {};
+    let call = contracts::IERC20::totalSupplyCall {};
     let total_supply = call_view_function(token, call, provider)?;
     Ok(total_supply._0)
 }
@@ -859,7 +917,7 @@ pub fn erc20_allowance(
     let owner = resolve_name(owner_address, provider.chain_id)?;
     let spender = resolve_name(spender_address, provider.chain_id)?;
 
-    let call = IERC20::allowanceCall { owner, spender };
+    let call = contracts::IERC20::allowanceCall { owner, spender };
     let allowance = call_view_function(token, call, provider)?;
     Ok(allowance._0)
 }
@@ -892,7 +950,7 @@ pub fn erc20_transfer<S: Signer>(
     kiprintln!("PL:: Resolved recipient address: {}", to);
 
     // Create the call
-    let call = IERC20::transferCall { to, value: amount };
+    let call = contracts::IERC20::transferCall { to, value: amount };
     let call_data = call.abi_encode();
 
     // Get token details for receipt formatting
@@ -934,7 +992,7 @@ pub fn erc20_approve<S: Signer>(
     let spender = resolve_name(spender_address, provider.chain_id)?;
 
     // Create the call
-    let call = IERC20::approveCall {
+    let call = contracts::IERC20::approveCall {
         spender,
         value: amount,
     };
@@ -981,7 +1039,7 @@ pub fn erc20_transfer_from<S: Signer>(
     let to = resolve_name(to_address, provider.chain_id)?;
 
     // Create the call
-    let call = IERC20::transferFromCall {
+    let call = contracts::IERC20::transferFromCall {
         from,
         to,
         value: amount,
@@ -1027,7 +1085,7 @@ pub fn erc721_balance_of(
     let token = resolve_name(token_address, provider.chain_id)?;
     let owner = resolve_name(owner_address, provider.chain_id)?;
 
-    let call = IERC721::balanceOfCall { owner };
+    let call = contracts::IERC721::balanceOfCall { owner };
     let balance = call_view_function(token, call, provider)?;
     Ok(balance._0)
 }
@@ -1039,7 +1097,7 @@ pub fn erc721_owner_of(
     provider: &Provider,
 ) -> Result<EthAddress, WalletError> {
     let token = resolve_name(token_address, provider.chain_id)?;
-    let call = IERC721::ownerOfCall { tokenId: token_id };
+    let call = contracts::IERC721::ownerOfCall { tokenId: token_id };
     let owner = call_view_function(token, call, provider)?;
     Ok(owner._0)
 }
@@ -1055,7 +1113,7 @@ pub fn erc721_is_approved_for_all(
     let owner = resolve_name(owner_address, provider.chain_id)?;
     let operator = resolve_name(operator_address, provider.chain_id)?;
 
-    let call = IERC721::isApprovedForAllCall { owner, operator };
+    let call = contracts::IERC721::isApprovedForAllCall { owner, operator };
     let is_approved = call_view_function(token, call, provider)?;
     Ok(is_approved._0)
 }
@@ -1075,7 +1133,7 @@ pub fn erc721_safe_transfer_from<S: Signer>(
     let to = resolve_name(to_address, provider.chain_id)?;
 
     // Create the call
-    let call = IERC721::safeTransferFromCall {
+    let call = contracts::IERC721::safeTransferFromCall {
         from,
         to,
         tokenId: token_id,
@@ -1115,7 +1173,7 @@ pub fn erc721_set_approval_for_all<S: Signer>(
     let operator = resolve_name(operator_address, provider.chain_id)?;
 
     // Create the call
-    let call = IERC721::setApprovalForAllCall { operator, approved };
+    let call = contracts::IERC721::setApprovalForAllCall { operator, approved };
     let call_data = call.abi_encode();
 
     // Format receipt message
@@ -1158,7 +1216,7 @@ pub fn erc1155_balance_of(
     let token = resolve_name(token_address, provider.chain_id)?;
     let account = resolve_name(account_address, provider.chain_id)?;
 
-    let call = IERC1155::balanceOfCall {
+    let call = contracts::IERC1155::balanceOfCall {
         account,
         id: token_id,
     };
@@ -1189,7 +1247,7 @@ pub fn erc1155_balance_of_batch(
         accounts.push(resolve_name(addr, provider.chain_id)?);
     }
 
-    let call = IERC1155::balanceOfBatchCall {
+    let call = contracts::IERC1155::balanceOfBatchCall {
         accounts,
         ids: token_ids,
     };
@@ -1208,7 +1266,7 @@ pub fn erc1155_is_approved_for_all(
     let account = resolve_name(account_address, provider.chain_id)?;
     let operator = resolve_name(operator_address, provider.chain_id)?;
 
-    let call = IERC1155::isApprovedForAllCall { account, operator };
+    let call = contracts::IERC1155::isApprovedForAllCall { account, operator };
     let is_approved = call_view_function(token, call, provider)?;
     Ok(is_approved._0)
 }
@@ -1226,7 +1284,7 @@ pub fn erc1155_set_approval_for_all<S: Signer>(
     let operator = resolve_name(operator_address, provider.chain_id)?;
 
     // Create the call
-    let call = IERC1155::setApprovalForAllCall { operator, approved };
+    let call = contracts::IERC1155::setApprovalForAllCall { operator, approved };
     let call_data = call.abi_encode();
 
     // Format receipt message
@@ -1272,7 +1330,7 @@ pub fn erc1155_safe_transfer_from<S: Signer>(
     let to = resolve_name(to_address, provider.chain_id)?;
 
     // Create the call
-    let call = IERC1155::safeTransferFromCall {
+    let call = contracts::IERC1155::safeTransferFromCall {
         from,
         to,
         id: token_id,
@@ -1325,7 +1383,7 @@ pub fn erc1155_safe_batch_transfer_from<S: Signer>(
     let to = resolve_name(to_address, provider.chain_id)?;
 
     // Create the call
-    let call = IERC1155::safeBatchTransferFromCall {
+    let call = contracts::IERC1155::safeBatchTransferFromCall {
         from,
         to,
         ids: token_ids.clone(),
@@ -1524,7 +1582,7 @@ pub fn execute_via_tba_with_signer<S: Signer>(
     // Create the outer execute call (with txGas) directed at the TBA
     // Use the _1 suffix for the second defined execute function (5 args)
     let internal_gas_limit = U256::from(500_000); // Explicitly set gas for the internal call
-    let execute_call = IERC6551Account::execute_1Call {
+    let execute_call = contracts::IERC6551Account::execute_1Call {
         // <-- Using _1 suffix now
         to: target,
         value, // This value is sent from the TBA to the target
@@ -1576,7 +1634,7 @@ pub fn tba_execute<S: Signer>(
     let target = resolve_name(target_address, provider.chain_id)?;
 
     // Create the execute call
-    let execute_call = IERC6551Account::execute_0Call {
+    let execute_call = contracts::IERC6551Account::execute_0Call {
         to: target,
         value,
         data: Bytes::from(call_data),
@@ -1615,7 +1673,7 @@ pub fn tba_is_valid_signer(
     let signer_addr = resolve_name(signer_address, provider.chain_id)?;
 
     // Create the isValidSigner call
-    let call = IERC6551Account::isValidSignerCall {
+    let call = contracts::IERC6551Account::isValidSignerCall {
         signer: signer_addr,
         data: Bytes::default(), // No extra data needed for standard check
     };
@@ -1645,7 +1703,7 @@ pub fn tba_get_token_info(
     let tba = resolve_name(tba_address, provider.chain_id)?;
 
     // Create the token() call
-    let call = IERC6551Account::tokenCall {};
+    let call = contracts::IERC6551Account::tokenCall {};
 
     // Use the view function helper
     let result = call_view_function(tba, call, provider)?;
@@ -1673,7 +1731,7 @@ pub fn tba_set_signer_data_key<S: Signer>(
     let tba = resolve_name(tba_address, provider.chain_id)?;
 
     // Create the setSignerDataKey call
-    let set_key_call = IERC6551Account::setSignerDataKeyCall {
+    let set_key_call = contracts::IERC6551Account::setSignerDataKeyCall {
         signerDataKey: data_key_hash,
     };
 
@@ -2171,7 +2229,7 @@ pub fn get_token_details(
 /// # Returns
 /// A `Vec<u8>` containing the ABI-encoded calldata.
 pub fn create_erc20_transfer_calldata(recipient: EthAddress, amount: U256) -> Vec<u8> {
-    let call = IERC20::transferCall {
+    let call = contracts::IERC20::transferCall {
         to: recipient,
         value: amount,
     };
@@ -2205,4 +2263,220 @@ pub fn create_hypermap_note_calldata(
         data: Bytes::from(data),
     };
     Ok(call.abi_encode())
+}
+
+
+/// UserOperation builder for ERC-4337
+#[derive(Debug, Clone)]
+pub struct UserOperationBuilder {
+    pub sender: EthAddress,
+    pub nonce: U256,
+    pub init_code: Vec<u8>,
+    pub call_data: Vec<u8>,
+    pub call_gas_limit: U256,
+    pub verification_gas_limit: U256,
+    pub pre_verification_gas: U256,
+    pub max_fee_per_gas: U256,
+    pub max_priority_fee_per_gas: U256,
+    pub paymaster_and_data: Vec<u8>,
+    pub chain_id: u64,
+}
+
+impl UserOperationBuilder {
+    /// Create a new UserOperation builder
+    pub fn new(sender: EthAddress, chain_id: u64) -> Self {
+        Self {
+            sender,
+            nonce: U256::ZERO,
+            init_code: vec![],
+            call_data: vec![],
+            call_gas_limit: U256::from(100_000),
+            verification_gas_limit: U256::from(150_000),
+            pre_verification_gas: U256::from(21_000),
+            max_fee_per_gas: U256::ZERO,
+            max_priority_fee_per_gas: U256::ZERO,
+            paymaster_and_data: vec![],
+            chain_id,
+        }
+    }
+    
+    /// Build and sign the UserOperation
+    pub fn build_and_sign<S: Signer>(
+        self,
+        entry_point: EthAddress,
+        signer: &S,
+    ) -> Result<UserOperation, WalletError> {
+        // Create the UserOperation struct
+        let user_op = UserOperation {
+            sender: self.sender,
+            nonce: self.nonce,
+            initCode: Bytes::from(self.init_code.clone()),
+            callData: Bytes::from(self.call_data.clone()),
+            callGasLimit: self.call_gas_limit,
+            verificationGasLimit: self.verification_gas_limit,
+            preVerificationGas: self.pre_verification_gas,
+            maxFeePerGas: self.max_fee_per_gas,
+            maxPriorityFeePerGas: self.max_priority_fee_per_gas,
+            paymasterAndData: Bytes::from(self.paymaster_and_data.clone()),
+            signature: Bytes::default(), // Will be filled after signing
+        };
+        
+        // Get the UserOp hash for signing
+        let user_op_hash = self.get_user_op_hash(&user_op, entry_point, self.chain_id);
+        
+        // Sign the hash
+        let signature = signer.sign_message(&user_op_hash)?;
+        
+        // Create final UserOp with signature
+        Ok(UserOperation {
+            sender: self.sender,
+            nonce: self.nonce,
+            initCode: Bytes::from(self.init_code),
+            callData: Bytes::from(self.call_data),
+            callGasLimit: self.call_gas_limit,
+            verificationGasLimit: self.verification_gas_limit,
+            preVerificationGas: self.pre_verification_gas,
+            maxFeePerGas: self.max_fee_per_gas,
+            maxPriorityFeePerGas: self.max_priority_fee_per_gas,
+            paymasterAndData: Bytes::from(self.paymaster_and_data),
+            signature: Bytes::from(signature),
+        })
+    }
+    
+    /// Calculate the UserOp hash according to ERC-4337 spec
+    fn get_user_op_hash(
+        &self,
+        user_op: &UserOperation,
+        entry_point: EthAddress,
+        chain_id: u64,
+    ) -> Vec<u8> {
+        use sha3::{Digest, Keccak256};
+        
+        // Pack the UserOp for hashing (without signature)
+        let packed = self.pack_user_op_for_hash(user_op);
+        let user_op_hash = Keccak256::digest(&packed);
+        
+        // Create the final hash with entry point and chain ID
+        let mut hasher = Keccak256::new();
+        hasher.update(user_op_hash);
+        hasher.update(entry_point.as_slice());
+        hasher.update(&chain_id.to_be_bytes());
+        
+        hasher.finalize().to_vec()
+    }
+    
+    /// Pack UserOp fields for hashing (ERC-4337 specification)
+    fn pack_user_op_for_hash(&self, user_op: &UserOperation) -> Vec<u8> {
+        use sha3::{Digest, Keccak256};
+        
+        let mut packed = Vec::new();
+        
+        // Pack all fields except signature
+        packed.extend_from_slice(user_op.sender.as_slice());
+        packed.extend_from_slice(&user_op.nonce.to_be_bytes::<32>());
+        
+        // For initCode and paymasterAndData, we hash them if non-empty
+        if !user_op.initCode.is_empty() {
+            let hash = Keccak256::digest(&user_op.initCode);
+            packed.extend_from_slice(&hash);
+        } else {
+            packed.extend_from_slice(&[0u8; 32]);
+        }
+        
+        if !user_op.callData.is_empty() {
+            let hash = Keccak256::digest(&user_op.callData);
+            packed.extend_from_slice(&hash);
+        } else {
+            packed.extend_from_slice(&[0u8; 32]);
+        }
+        
+        packed.extend_from_slice(&user_op.callGasLimit.to_be_bytes::<32>());
+        packed.extend_from_slice(&user_op.verificationGasLimit.to_be_bytes::<32>());
+        packed.extend_from_slice(&user_op.preVerificationGas.to_be_bytes::<32>());
+        packed.extend_from_slice(&user_op.maxFeePerGas.to_be_bytes::<32>());
+        packed.extend_from_slice(&user_op.maxPriorityFeePerGas.to_be_bytes::<32>());
+        
+        if !user_op.paymasterAndData.is_empty() {
+            let hash = Keccak256::digest(&user_op.paymasterAndData);
+            packed.extend_from_slice(&hash);
+        } else {
+            packed.extend_from_slice(&[0u8; 32]);
+        }
+        
+        packed
+    }
+}
+
+/// Helper to create calldata for TBA execute through UserOp
+pub fn create_tba_userop_calldata(
+    target: EthAddress,
+    value: U256,
+    data: Vec<u8>,
+    operation: u8,
+) -> Vec<u8> {
+    // Use existing IERC6551Account interface
+    let call = contracts::IERC6551Account::execute_0Call {
+        to: target,
+        value,
+        data: Bytes::from(data),
+        operation,
+    };
+    call.abi_encode()
+}
+
+
+
+/// Get the ERC-4337 EntryPoint address for a given chain
+pub fn get_entry_point_address(chain_id: u64) -> Option<EthAddress> {
+    match chain_id {
+        // v0.6.0 EntryPoint is deployed at the same address on most chains
+        1 | 10 | 137 | 42161 | 8453 => {
+            EthAddress::from_str("0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789").ok()
+        }
+        // Sepolia testnet
+        11155111 => {
+            EthAddress::from_str("0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789").ok()
+        }
+        _ => None,
+    }
+}
+
+/// Known paymaster addresses by chain
+pub fn get_known_paymaster(chain_id: u64) -> Option<EthAddress> {
+    match chain_id {
+        8453 => { // Base
+            // Circle's USDC paymaster on Base
+            EthAddress::from_str("0x0578cFB241215b77442a541325d6A4E6dFE700Ec").ok()
+        }
+        _ => None,
+    }
+}
+
+/// Encode paymaster data for USDC payment
+/// The format is: paymaster address (20 bytes) + paymaster-specific data
+pub fn encode_usdc_paymaster_data(
+    paymaster: EthAddress,
+    token_address: EthAddress,
+    max_cost: U256,
+) -> Vec<u8> {
+    // Start with paymaster address (20 bytes)
+    let mut data = Vec::new();
+    data.extend_from_slice(paymaster.as_slice());
+    
+    // Add paymaster-specific data
+    // For Circle's paymaster, this typically includes:
+    // 1. Token address (20 bytes)
+    // 2. Max token amount to pay (32 bytes)
+    // 3. Exchange rate data or validity period (varies by paymaster)
+    
+    // Token address
+    data.extend_from_slice(token_address.as_slice());
+    
+    // Max cost in token units (32 bytes, big-endian)
+    data.extend_from_slice(&max_cost.to_be_bytes::<32>());
+    
+    // Additional data would go here based on specific paymaster requirements
+    // For now, we'll leave it at the basic format
+    
+    data
 }
