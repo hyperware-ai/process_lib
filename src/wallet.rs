@@ -45,7 +45,7 @@ sol! {
 // Define contract interfaces
 pub mod contracts {
     use alloy_sol_types::sol;
-    
+
     sol! {
         interface IERC20 {
             function balanceOf(address who) external view returns (uint256);
@@ -90,7 +90,7 @@ pub mod contracts {
             function getUserOpHash(bytes calldata packedUserOp) external view returns (bytes32);
             function getNonce(address sender, uint192 key) external view returns (uint256);
         }
-        
+
         // ERC-4337 Account Interface
         interface IAccount {
             function validateUserOp(
@@ -99,7 +99,7 @@ pub mod contracts {
                 uint256 missingAccountFunds
             ) external returns (uint256 validationData);
         }
-        
+
         // ERC-4337 Paymaster Interface
         interface IPaymaster {
             enum PostOpMode {
@@ -107,13 +107,13 @@ pub mod contracts {
                 opReverted,
                 postOpReverted
             }
-            
+
             function validatePaymasterUserOp(
                 bytes calldata packedUserOp,
                 bytes32 userOpHash,
                 uint256 maxCost
             ) external returns (bytes memory context, uint256 validationData);
-            
+
             function postOp(
                 PostOpMode mode,
                 bytes calldata context,
@@ -2265,7 +2265,6 @@ pub fn create_hypermap_note_calldata(
     Ok(call.abi_encode())
 }
 
-
 /// UserOperation builder for ERC-4337
 #[derive(Debug, Clone)]
 pub struct UserOperationBuilder {
@@ -2299,7 +2298,7 @@ impl UserOperationBuilder {
             chain_id,
         }
     }
-    
+
     /// Build and sign the UserOperation
     pub fn build_and_sign<S: Signer>(
         self,
@@ -2320,13 +2319,13 @@ impl UserOperationBuilder {
             paymasterAndData: Bytes::from(self.paymaster_and_data.clone()),
             signature: Bytes::default(), // Will be filled after signing
         };
-        
+
         // Get the UserOp hash for signing
         let user_op_hash = self.get_user_op_hash(&user_op, entry_point, self.chain_id);
-        
+
         // Sign the hash
         let signature = signer.sign_message(&user_op_hash)?;
-        
+
         // Create final UserOp with signature
         Ok(UserOperation {
             sender: self.sender,
@@ -2342,7 +2341,7 @@ impl UserOperationBuilder {
             signature: Bytes::from(signature),
         })
     }
-    
+
     /// Calculate the UserOp hash according to ERC-4337 spec
     fn get_user_op_hash(
         &self,
@@ -2351,30 +2350,30 @@ impl UserOperationBuilder {
         chain_id: u64,
     ) -> Vec<u8> {
         use sha3::{Digest, Keccak256};
-        
+
         // Pack the UserOp for hashing (without signature)
         let packed = self.pack_user_op_for_hash(user_op);
         let user_op_hash = Keccak256::digest(&packed);
-        
+
         // Create the final hash with entry point and chain ID
         let mut hasher = Keccak256::new();
         hasher.update(user_op_hash);
         hasher.update(entry_point.as_slice());
         hasher.update(&chain_id.to_be_bytes());
-        
+
         hasher.finalize().to_vec()
     }
-    
+
     /// Pack UserOp fields for hashing (ERC-4337 specification)
     fn pack_user_op_for_hash(&self, user_op: &UserOperation) -> Vec<u8> {
         use sha3::{Digest, Keccak256};
-        
+
         let mut packed = Vec::new();
-        
+
         // Pack all fields except signature
         packed.extend_from_slice(user_op.sender.as_slice());
         packed.extend_from_slice(&user_op.nonce.to_be_bytes::<32>());
-        
+
         // For initCode and paymasterAndData, we hash them if non-empty
         if !user_op.initCode.is_empty() {
             let hash = Keccak256::digest(&user_op.initCode);
@@ -2382,27 +2381,27 @@ impl UserOperationBuilder {
         } else {
             packed.extend_from_slice(&[0u8; 32]);
         }
-        
+
         if !user_op.callData.is_empty() {
             let hash = Keccak256::digest(&user_op.callData);
             packed.extend_from_slice(&hash);
         } else {
             packed.extend_from_slice(&[0u8; 32]);
         }
-        
+
         packed.extend_from_slice(&user_op.callGasLimit.to_be_bytes::<32>());
         packed.extend_from_slice(&user_op.verificationGasLimit.to_be_bytes::<32>());
         packed.extend_from_slice(&user_op.preVerificationGas.to_be_bytes::<32>());
         packed.extend_from_slice(&user_op.maxFeePerGas.to_be_bytes::<32>());
         packed.extend_from_slice(&user_op.maxPriorityFeePerGas.to_be_bytes::<32>());
-        
+
         if !user_op.paymasterAndData.is_empty() {
             let hash = Keccak256::digest(&user_op.paymasterAndData);
             packed.extend_from_slice(&hash);
         } else {
             packed.extend_from_slice(&[0u8; 32]);
         }
-        
+
         packed
     }
 }
@@ -2424,8 +2423,6 @@ pub fn create_tba_userop_calldata(
     call.abi_encode()
 }
 
-
-
 /// Get the ERC-4337 EntryPoint address for a given chain
 pub fn get_entry_point_address(chain_id: u64) -> Option<EthAddress> {
     match chain_id {
@@ -2434,9 +2431,7 @@ pub fn get_entry_point_address(chain_id: u64) -> Option<EthAddress> {
             EthAddress::from_str("0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789").ok()
         }
         // Sepolia testnet
-        11155111 => {
-            EthAddress::from_str("0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789").ok()
-        }
+        11155111 => EthAddress::from_str("0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789").ok(),
         _ => None,
     }
 }
@@ -2444,7 +2439,8 @@ pub fn get_entry_point_address(chain_id: u64) -> Option<EthAddress> {
 /// Known paymaster addresses by chain
 pub fn get_known_paymaster(chain_id: u64) -> Option<EthAddress> {
     match chain_id {
-        8453 => { // Base
+        8453 => {
+            // Base
             // Circle's USDC paymaster on Base
             EthAddress::from_str("0x0578cFB241215b77442a541325d6A4E6dFE700Ec").ok()
         }
@@ -2462,21 +2458,21 @@ pub fn encode_usdc_paymaster_data(
     // Start with paymaster address (20 bytes)
     let mut data = Vec::new();
     data.extend_from_slice(paymaster.as_slice());
-    
+
     // Add paymaster-specific data
     // For Circle's paymaster, this typically includes:
     // 1. Token address (20 bytes)
     // 2. Max token amount to pay (32 bytes)
     // 3. Exchange rate data or validity period (varies by paymaster)
-    
+
     // Token address
     data.extend_from_slice(token_address.as_slice());
-    
+
     // Max cost in token units (32 bytes, big-endian)
     data.extend_from_slice(&max_cost.to_be_bytes::<32>());
-    
+
     // Additional data would go here based on specific paymaster requirements
     // For now, we'll leave it at the basic format
-    
+
     data
 }
