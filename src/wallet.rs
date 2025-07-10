@@ -2307,8 +2307,8 @@ impl UserOperationBuilder {
             verification_gas_limit: U256::from(150_000),
             pre_verification_gas: U256::from(21_000),
             // Set reasonable gas prices for Base chain
-            max_fee_per_gas: U256::from(50_000_000), // 0.05 gwei
-            max_priority_fee_per_gas: U256::from(50_000_000), // 0.05 gwei
+            max_fee_per_gas: U256::from(1_000_000_000), // 1 gwei
+            max_priority_fee_per_gas: U256::from(1_000_000_000), // 1 gwei
             paymaster_and_data: Vec::new(),
             chain_id,
         }
