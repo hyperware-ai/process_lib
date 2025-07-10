@@ -40,7 +40,7 @@ sol! {
         bytes paymasterAndData;
         bytes signature;
     }
-    
+
     // v0.8 UserOperation struct with packed fields
     #[derive(Debug, Default, PartialEq, Eq)]
     struct PackedUserOperation {
@@ -2331,7 +2331,7 @@ impl UserOperationBuilder {
 
         // Set the signature
         packed_op.signature = Bytes::from(signature);
-        
+
         Ok(packed_op)
     }
 
@@ -2484,29 +2484,24 @@ fn pack_gas_values(high: U256, low: U256) -> B256 {
     // Take the lower 16 bytes of each value
     let high_bytes = high.to_be_bytes::<32>();
     let low_bytes = low.to_be_bytes::<32>();
-    
+
     // Pack high value in first 16 bytes
     packed[0..16].copy_from_slice(&high_bytes[16..32]);
     // Pack low value in last 16 bytes
     packed[16..32].copy_from_slice(&low_bytes[16..32]);
-    
+
     B256::from(packed)
 }
 
 /// Build a v0.8 PackedUserOperation from the builder values
 pub fn build_packed_user_operation(builder: &UserOperationBuilder) -> PackedUserOperation {
     // Pack gas limits: verificationGasLimit (high) and callGasLimit (low)
-    let account_gas_limits = pack_gas_values(
-        builder.verification_gas_limit,
-        builder.call_gas_limit
-    );
-    
+    let account_gas_limits =
+        pack_gas_values(builder.verification_gas_limit, builder.call_gas_limit);
+
     // Pack gas fees: maxPriorityFeePerGas (high) and maxFeePerGas (low)
-    let gas_fees = pack_gas_values(
-        builder.max_priority_fee_per_gas,
-        builder.max_fee_per_gas
-    );
-    
+    let gas_fees = pack_gas_values(builder.max_priority_fee_per_gas, builder.max_fee_per_gas);
+
     PackedUserOperation {
         sender: builder.sender,
         nonce: builder.nonce,
