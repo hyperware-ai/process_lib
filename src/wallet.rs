@@ -40,6 +40,20 @@ sol! {
         bytes paymasterAndData;
         bytes signature;
     }
+    
+    // v0.8 UserOperation struct with packed fields
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct PackedUserOperation {
+        address sender;
+        uint256 nonce;
+        bytes initCode;
+        bytes callData;
+        bytes32 accountGasLimits;  // packed verificationGasLimit (16 bytes) and callGasLimit (16 bytes)
+        uint256 preVerificationGas;
+        bytes32 gasFees;  // packed maxPriorityFeePerGas (16 bytes) and maxFeePerGas (16 bytes)
+        bytes paymasterAndData;
+        bytes signature;
+    }
 }
 
 // Define contract interfaces
@@ -2305,42 +2319,20 @@ impl UserOperationBuilder {
         self,
         entry_point: EthAddress,
         signer: &S,
-    ) -> Result<UserOperation, WalletError> {
-        // Create the UserOperation struct
-        let user_op = UserOperation {
-            sender: self.sender,
-            nonce: self.nonce,
-            initCode: Bytes::from(self.init_code.clone()),
-            callData: Bytes::from(self.call_data.clone()),
-            callGasLimit: self.call_gas_limit,
-            verificationGasLimit: self.verification_gas_limit,
-            preVerificationGas: self.pre_verification_gas,
-            maxFeePerGas: self.max_fee_per_gas,
-            maxPriorityFeePerGas: self.max_priority_fee_per_gas,
-            paymasterAndData: Bytes::from(self.paymaster_and_data.clone()),
-            signature: Bytes::default(), // Will be filled after signing
-        };
+    ) -> Result<PackedUserOperation, WalletError> {
+        // Create the v0.8 PackedUserOperation struct
+        let mut packed_op = build_packed_user_operation(&self);
 
         // Get the UserOp hash for signing
-        let user_op_hash = self.get_user_op_hash(&user_op, entry_point, self.chain_id);
+        let user_op_hash = self.get_user_op_hash_v08(&packed_op, entry_point, self.chain_id);
 
         // Sign the hash
         let signature = signer.sign_message(&user_op_hash)?;
 
-        // Create final UserOp with signature
-        Ok(UserOperation {
-            sender: self.sender,
-            nonce: self.nonce,
-            initCode: Bytes::from(self.init_code),
-            callData: Bytes::from(self.call_data),
-            callGasLimit: self.call_gas_limit,
-            verificationGasLimit: self.verification_gas_limit,
-            preVerificationGas: self.pre_verification_gas,
-            maxFeePerGas: self.max_fee_per_gas,
-            maxPriorityFeePerGas: self.max_priority_fee_per_gas,
-            paymasterAndData: Bytes::from(self.paymaster_and_data),
-            signature: Bytes::from(signature),
-        })
+        // Set the signature
+        packed_op.signature = Bytes::from(signature);
+        
+        Ok(packed_op)
     }
 
     /// Calculate the UserOp hash according to ERC-4337 spec
@@ -2354,6 +2346,28 @@ impl UserOperationBuilder {
 
         // Pack the UserOp for hashing (without signature)
         let packed = self.pack_user_op_for_hash(user_op);
+        let user_op_hash = Keccak256::digest(&packed);
+
+        // Create the final hash with entry point and chain ID
+        let mut hasher = Keccak256::new();
+        hasher.update(user_op_hash);
+        hasher.update(entry_point.as_slice());
+        hasher.update(&chain_id.to_be_bytes());
+
+        hasher.finalize().to_vec()
+    }
+
+    /// Calculate the UserOp hash for v0.8 according to ERC-4337 spec
+    fn get_user_op_hash_v08(
+        &self,
+        user_op: &PackedUserOperation,
+        entry_point: EthAddress,
+        chain_id: u64,
+    ) -> Vec<u8> {
+        use sha3::{Digest, Keccak256};
+
+        // Pack the UserOp for hashing (without signature)
+        let packed = self.pack_user_op_for_hash_v08(user_op);
         let user_op_hash = Keccak256::digest(&packed);
 
         // Create the final hash with entry point and chain ID
@@ -2405,6 +2419,46 @@ impl UserOperationBuilder {
 
         packed
     }
+
+    /// Pack UserOp fields for hashing v0.8 (ERC-4337 specification)
+    fn pack_user_op_for_hash_v08(&self, user_op: &PackedUserOperation) -> Vec<u8> {
+        use sha3::{Digest, Keccak256};
+
+        let mut packed = Vec::new();
+
+        // Pack all fields except signature
+        packed.extend_from_slice(user_op.sender.as_slice());
+        packed.extend_from_slice(&user_op.nonce.to_be_bytes::<32>());
+
+        // For initCode and paymasterAndData, we hash them if non-empty
+        if !user_op.initCode.is_empty() {
+            let hash = Keccak256::digest(&user_op.initCode);
+            packed.extend_from_slice(&hash);
+        } else {
+            packed.extend_from_slice(&[0u8; 32]);
+        }
+
+        if !user_op.callData.is_empty() {
+            let hash = Keccak256::digest(&user_op.callData);
+            packed.extend_from_slice(&hash);
+        } else {
+            packed.extend_from_slice(&[0u8; 32]);
+        }
+
+        // Pack the packed fields directly (accountGasLimits and gasFees)
+        packed.extend_from_slice(&user_op.accountGasLimits.0);
+        packed.extend_from_slice(&user_op.preVerificationGas.to_be_bytes::<32>());
+        packed.extend_from_slice(&user_op.gasFees.0);
+
+        if !user_op.paymasterAndData.is_empty() {
+            let hash = Keccak256::digest(&user_op.paymasterAndData);
+            packed.extend_from_slice(&hash);
+        } else {
+            packed.extend_from_slice(&[0u8; 32]);
+        }
+
+        packed
+    }
 }
 
 /// Helper to create calldata for TBA execute through UserOp
@@ -2422,6 +2476,48 @@ pub fn create_tba_userop_calldata(
         operation,
     };
     call.abi_encode()
+}
+
+/// Pack two 16-byte values into a single bytes32 for v0.8 UserOperation
+fn pack_gas_values(high: U256, low: U256) -> B256 {
+    let mut packed = [0u8; 32];
+    // Take the lower 16 bytes of each value
+    let high_bytes = high.to_be_bytes::<32>();
+    let low_bytes = low.to_be_bytes::<32>();
+    
+    // Pack high value in first 16 bytes
+    packed[0..16].copy_from_slice(&high_bytes[16..32]);
+    // Pack low value in last 16 bytes
+    packed[16..32].copy_from_slice(&low_bytes[16..32]);
+    
+    B256::from(packed)
+}
+
+/// Build a v0.8 PackedUserOperation from the builder values
+pub fn build_packed_user_operation(builder: &UserOperationBuilder) -> PackedUserOperation {
+    // Pack gas limits: verificationGasLimit (high) and callGasLimit (low)
+    let account_gas_limits = pack_gas_values(
+        builder.verification_gas_limit,
+        builder.call_gas_limit
+    );
+    
+    // Pack gas fees: maxPriorityFeePerGas (high) and maxFeePerGas (low)
+    let gas_fees = pack_gas_values(
+        builder.max_priority_fee_per_gas,
+        builder.max_fee_per_gas
+    );
+    
+    PackedUserOperation {
+        sender: builder.sender,
+        nonce: builder.nonce,
+        initCode: Bytes::from(builder.init_code.clone()),
+        callData: Bytes::from(builder.call_data.clone()),
+        accountGasLimits: account_gas_limits,
+        preVerificationGas: builder.pre_verification_gas,
+        gasFees: gas_fees,
+        paymasterAndData: Bytes::from(builder.paymaster_and_data.clone()),
+        signature: Bytes::default(),
+    }
 }
 
 /// Get the ERC-4337 EntryPoint address for a given chain
