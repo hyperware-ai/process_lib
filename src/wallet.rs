@@ -2427,8 +2427,13 @@ pub fn create_tba_userop_calldata(
 /// Get the ERC-4337 EntryPoint address for a given chain
 pub fn get_entry_point_address(chain_id: u64) -> Option<EthAddress> {
     match chain_id {
-        // v0.6.0 EntryPoint is deployed at the same address on most chains
-        1 | 10 | 137 | 42161 | 8453 => {
+        // v0.8.0 EntryPoint is deployed at this address on Base and other chains
+        8453 => {
+            // Base - use v0.8 EntryPoint
+            EthAddress::from_str("0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108").ok()
+        }
+        // v0.6.0 EntryPoint for other chains (keeping for compatibility)
+        1 | 10 | 137 | 42161 => {
             EthAddress::from_str("0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789").ok()
         }
         // Sepolia testnet
