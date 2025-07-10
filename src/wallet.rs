@@ -2303,9 +2303,9 @@ impl UserOperationBuilder {
             nonce: U256::ZERO,
             init_code: Vec::new(),
             call_data: Vec::new(),
-            call_gas_limit: U256::from(100_000),
-            verification_gas_limit: U256::from(150_000),
-            pre_verification_gas: U256::from(21_000),
+            call_gas_limit: U256::from(80_000), // Reduced from 100k
+            verification_gas_limit: U256::from(100_000), // Reduced from 150k
+            pre_verification_gas: U256::from(50_000), // Increased from 21k for L2
             // Set reasonable gas prices for Base chain
             max_fee_per_gas: U256::from(1_000_000_000), // 1 gwei
             max_priority_fee_per_gas: U256::from(1_000_000_000), // 1 gwei
