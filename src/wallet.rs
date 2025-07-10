@@ -2282,19 +2282,20 @@ pub struct UserOperationBuilder {
 }
 
 impl UserOperationBuilder {
-    /// Create a new UserOperation builder
+    /// Create a new UserOperationBuilder with defaults
     pub fn new(sender: EthAddress, chain_id: u64) -> Self {
         Self {
             sender,
             nonce: U256::ZERO,
-            init_code: vec![],
-            call_data: vec![],
+            init_code: Vec::new(),
+            call_data: Vec::new(),
             call_gas_limit: U256::from(100_000),
             verification_gas_limit: U256::from(150_000),
             pre_verification_gas: U256::from(21_000),
-            max_fee_per_gas: U256::ZERO,
-            max_priority_fee_per_gas: U256::ZERO,
-            paymaster_and_data: vec![],
+            // Set reasonable gas prices for Base chain
+            max_fee_per_gas: U256::from(50_000_000), // 0.05 gwei
+            max_priority_fee_per_gas: U256::from(50_000_000), // 0.05 gwei
+            paymaster_and_data: Vec::new(),
             chain_id,
         }
     }
