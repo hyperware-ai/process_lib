@@ -2557,19 +2557,14 @@ pub fn encode_usdc_paymaster_data(
     data.extend_from_slice(paymaster.as_slice());
 
     // Add paymaster-specific data
-    // For Circle's paymaster, this typically includes:
-    // 1. Token address (20 bytes)
-    // 2. Max token amount to pay (32 bytes)
-    // 3. Exchange rate data or validity period (varies by paymaster)
-
-    // Token address
+    // For Circle's paymaster on Base, we only include the token address
+    // The paymaster will calculate the gas cost internally
+    
+    // Token address (USDC)
     data.extend_from_slice(token_address.as_slice());
-
-    // Max cost in token units (32 bytes, big-endian)
-    data.extend_from_slice(&max_cost.to_be_bytes::<32>());
-
-    // Additional data would go here based on specific paymaster requirements
-    // For now, we'll leave it at the basic format
+    
+    // Note: Circle's paymaster may expect additional data, but based on
+    // the error we're getting, let's try with just the token address
 
     data
 }
