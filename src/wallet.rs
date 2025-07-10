@@ -2559,10 +2559,10 @@ pub fn encode_usdc_paymaster_data(
     // Add paymaster-specific data
     // For Circle's paymaster on Base, we only include the token address
     // The paymaster will calculate the gas cost internally
-    
+
     // Token address (USDC)
     data.extend_from_slice(token_address.as_slice());
-    
+
     // Note: Circle's paymaster may expect additional data, but based on
     // the error we're getting, let's try with just the token address
 
