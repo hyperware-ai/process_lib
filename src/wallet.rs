@@ -2556,7 +2556,6 @@ pub fn encode_usdc_paymaster_data(
     let mut data = Vec::new();
     data.extend_from_slice(paymaster.as_slice());
 
-<<<<<<< HEAD
     // Add paymaster-specific data for Circle's TokenPaymaster v0.8
     // Format: encodePacked([uint8, address, uint256, bytes])
     // - uint8: mode (0 for permit mode)
@@ -2588,17 +2587,5 @@ pub fn encode_usdc_paymaster_data(
     
     // For testing, let's try without the signature first to see if we get a different error
     
-=======
-    // Add paymaster-specific data
-    // For Circle's paymaster on Base, we only include the token address
-    // The paymaster will calculate the gas cost internally
-
-    // Token address (USDC)
-    data.extend_from_slice(token_address.as_slice());
-
-    // Note: Circle's paymaster may expect additional data, but based on
-    // the error we're getting, let's try with just the token address
-
->>>>>>> aa42c9fcc0514fae774d56a2a6298e2e917ea896
     data
 }
