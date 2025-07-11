@@ -2563,17 +2563,17 @@ pub fn generate_eip2612_permit_signature<S: Signer>(
     signer: &S,
 ) -> Result<Vec<u8>, WalletError> {
     use sha3::{Digest, Keccak256};
-    
+
     // EIP-712 Domain Separator
     // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
     let domain_type_hash = Keccak256::digest(
-        b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+        b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)",
     );
-    
+
     // USDC uses "USD Coin" and version "2"
     let name_hash = Keccak256::digest(b"USD Coin");
     let version_hash = Keccak256::digest(b"2");
-    
+
     // Build domain separator
     let mut domain_data = Vec::new();
     domain_data.extend_from_slice(&domain_type_hash);
@@ -2582,13 +2582,13 @@ pub fn generate_eip2612_permit_signature<S: Signer>(
     domain_data.extend_from_slice(&chain_id.to_be_bytes::<32>());
     domain_data.extend_from_slice(token_address.as_slice());
     let domain_separator = Keccak256::digest(&domain_data);
-    
+
     // Permit type hash
     // keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)")
     let permit_type_hash = Keccak256::digest(
-        b"Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"
+        b"Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)",
     );
-    
+
     // Build permit struct hash
     let mut permit_data_encoded = Vec::new();
     permit_data_encoded.extend_from_slice(&permit_type_hash);
@@ -2598,7 +2598,7 @@ pub fn generate_eip2612_permit_signature<S: Signer>(
     permit_data_encoded.extend_from_slice(&permit_data.nonce.to_be_bytes::<32>());
     permit_data_encoded.extend_from_slice(&permit_data.deadline.to_be_bytes::<32>());
     let permit_struct_hash = Keccak256::digest(&permit_data_encoded);
-    
+
     // Build final message hash for EIP-712
     let mut message = Vec::new();
     message.push(0x19);
@@ -2606,13 +2606,13 @@ pub fn generate_eip2612_permit_signature<S: Signer>(
     message.extend_from_slice(&domain_separator);
     message.extend_from_slice(&permit_struct_hash);
     let message_hash = Keccak256::digest(&message);
-    
+
     // Sign the hash (raw signature without prefix)
     // We need to sign the raw hash, not use sign_message which adds prefix
     // For now, we'll use sign_message and strip the prefix behavior
     // TODO: Add raw hash signing to Signer trait
     let signature = signer.sign_message(&message_hash)?;
-    
+
     Ok(signature)
 }
 
@@ -2628,17 +2628,19 @@ pub fn get_usdc_permit_nonce(
     call_data.extend_from_slice(&hex::decode("7ecebe00").unwrap());
     call_data.extend_from_slice(&[0u8; 12]); // Pad address to 32 bytes
     call_data.extend_from_slice(owner.as_slice());
-    
+
     let token = resolve_name(token_address, provider.chain_id)?;
-    
+
     // Make the call
     let result = provider.call(token, call_data, None)?;
-    
+
     // Parse the result as U256
     if result.len() >= 32 {
         Ok(U256::from_be_slice(&result[..32]))
     } else {
-        Err(WalletError::TransactionError("Invalid nonce response".to_string()))
+        Err(WalletError::TransactionError(
+            "Invalid nonce response".to_string(),
+        ))
     }
 }
 
@@ -2662,7 +2664,7 @@ pub fn encode_usdc_paymaster_data_with_permit<S: Signer>(
     // - address: USDC token address
     // - uint256: permit amount
     // - bytes: permit signature
-    
+
     // Mode byte (0 for permit mode)
     data.push(0u8);
 
@@ -2672,17 +2674,20 @@ pub fn encode_usdc_paymaster_data_with_permit<S: Signer>(
     // Permit amount - use a reasonable amount for gas payment (10 USDC worth)
     let permit_amount = U256::from(10_000_000u64); // 10 USDC (6 decimals)
     data.extend_from_slice(&permit_amount.to_be_bytes::<32>());
-    
+
     // Generate EIP-2612 permit signature
     // Get current nonce from USDC contract
     let nonce = get_usdc_permit_nonce(&token_address.to_string(), tba_address, provider)?;
-    
+
     // Set deadline to 1 hour from now
-    let deadline = U256::from(std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() + 3600);
-    
+    let deadline = U256::from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600,
+    );
+
     let permit_data = PermitData {
         owner: tba_address,
         spender: paymaster,
@@ -2690,17 +2695,13 @@ pub fn encode_usdc_paymaster_data_with_permit<S: Signer>(
         nonce,
         deadline,
     };
-    
-    let permit_signature = generate_eip2612_permit_signature(
-        &permit_data,
-        token_address,
-        provider.chain_id,
-        signer
-    )?;
-    
+
+    let permit_signature =
+        generate_eip2612_permit_signature(&permit_data, token_address, provider.chain_id, signer)?;
+
     // Append the permit signature
     data.extend_from_slice(&permit_signature);
-    
+
     Ok(data)
 }
 
@@ -2715,20 +2716,20 @@ pub fn encode_usdc_paymaster_data(
     // The real implementation should use encode_usdc_paymaster_data_with_permit
     let mut data = Vec::new();
     data.extend_from_slice(paymaster.as_slice());
-    
+
     // Mode byte (0 for permit mode)
     data.push(0u8);
-    
+
     // Token address (USDC)
     data.extend_from_slice(token_address.as_slice());
-    
+
     // Permit amount
     let permit_amount = U256::from(10_000_000u64); // 10 USDC
     data.extend_from_slice(&permit_amount.to_be_bytes::<32>());
-    
+
     // For testing, add a dummy 65-byte signature
     // In production, this should be a real EIP-2612 permit signature
     data.extend_from_slice(&[0u8; 65]);
-    
+
     data
 }
