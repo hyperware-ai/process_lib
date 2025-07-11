@@ -20,6 +20,7 @@ use alloy::rpc::types::{
 use alloy_primitives::TxKind;
 use alloy_primitives::{Address as EthAddress, Bytes, TxHash, B256, U256};
 use alloy_sol_types::{sol, SolCall};
+use hex;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use thiserror::Error;
@@ -2325,6 +2326,11 @@ impl UserOperationBuilder {
 
         // Get the UserOp hash for signing
         let user_op_hash = self.get_user_op_hash_v08(&packed_op, entry_point, self.chain_id);
+
+        // Log the hash before signing
+        kiprintln!("PL:: UserOperation hash to sign: 0x{}", hex::encode(&user_op_hash));
+        kiprintln!("PL:: Entry point: {}", entry_point);
+        kiprintln!("PL:: Chain ID: {}", self.chain_id);
 
         // Sign the hash
         let signature = signer.sign_message(&user_op_hash)?;
