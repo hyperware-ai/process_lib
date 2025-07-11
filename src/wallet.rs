@@ -2479,15 +2479,13 @@ impl UserOperationBuilder {
         signer: &S,
         provider: &Provider,
     ) -> Result<(), WalletError> {
-        // Generate paymaster data with real permit signature
-        let paymaster_data = encode_usdc_paymaster_data_with_signer(
+        // Use simple Circle format - no permit signature needed
+        // The TBA has already approved the paymaster to spend USDC
+        let paymaster_data = encode_circle_paymaster_data(
             paymaster,
-            token_address,
-            max_cost,
-            tba_address,
-            signer,
-            provider,
-        )?;
+            500_000,  // Default verification gas limit
+            300_000,  // Default call gas limit
+        );
 
         // Set the combined paymaster and data
         self.paymaster_and_data = paymaster_data;
@@ -2685,6 +2683,8 @@ pub fn get_usdc_permit_nonce(
 }
 
 /// Encode paymaster data for USDC payment with EIP-2612 permit signature
+/// DEPRECATED - We don't use permit signatures anymore, only simple format
+/*
 pub fn encode_usdc_paymaster_data_with_signer<S: Signer>(
     paymaster: EthAddress,
     token_address: EthAddress,
@@ -2736,6 +2736,7 @@ pub fn encode_usdc_paymaster_data_with_signer<S: Signer>(
 
     Ok(data)
 }
+*/
 
 /// Encode paymaster data for USDC payment (keeping old function for compatibility)
 /// This version uses a dummy signature and will fail with AA33
@@ -2846,6 +2847,8 @@ pub fn create_multicall_permit_and_execute(
 
 /// Encode paymaster data for USDC payment with on-chain permit (for TBAs)
 /// This version doesn't include a permit signature since TBAs will call permit on-chain
+/// DEPRECATED - We only use the simple Circle format now
+/*
 pub fn encode_usdc_paymaster_data_for_tba(
     paymaster: EthAddress,
     token_address: EthAddress,
@@ -2874,3 +2877,4 @@ pub fn encode_usdc_paymaster_data_for_tba(
 
     data
 }
+*/
