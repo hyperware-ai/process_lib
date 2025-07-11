@@ -2479,10 +2479,10 @@ impl UserOperationBuilder {
             signer,
             provider,
         )?;
-        
+
         // Set the combined paymaster and data
         self.paymaster_and_data = paymaster_data;
-        
+
         Ok(())
     }
 }
