@@ -2749,8 +2749,8 @@ pub fn encode_usdc_paymaster_data(
 }
 
 /// Encode paymaster data for Circle's USDC paymaster
-/// Format: abi.encode(uint256 verificationGasLimit, uint256 callGasLimit)
-/// Note: The paymaster address is NOT included here - it goes in the separate paymaster field
+/// Format: abi.encode(address paymaster, uint256 verificationGasLimit, uint256 callGasLimit)
+/// Returns the complete ABI encoding that the paymaster expects to receive
 pub fn encode_circle_paymaster_data(
     paymaster: EthAddress,
     verification_gas_limit: u128,
@@ -2758,23 +2758,25 @@ pub fn encode_circle_paymaster_data(
 ) -> Vec<u8> {
     let mut data = Vec::new();
 
-    // First, add the paymaster address (20 bytes) - this will be extracted by the bundler
-    data.extend_from_slice(paymaster.as_slice());
+    // ABI encoding includes the paymaster address as the first parameter
+    // This matches the developer's example:
+    // encode(["address", "uint256", "uint256"], ['0x0578cFB241215b77442a541325d6A4E6dFE700Ec', 500000, 300000])
     
-    // Then add the ABI-encoded gas limits (what the paymaster actually expects)
+    // First parameter: paymaster address as uint256 (padded to 32 bytes)
+    let mut padded_address = vec![0u8; 12]; // 12 zero bytes for padding
+    padded_address.extend_from_slice(paymaster.as_slice()); // 20 bytes of address
+    data.extend_from_slice(&padded_address);
     
-    // Verification gas limit as uint256 (32 bytes)
+    // Second parameter: verification gas limit as uint256 (32 bytes)
     let verification_gas_u256 = U256::from(verification_gas_limit);
     data.extend_from_slice(&verification_gas_u256.to_be_bytes::<32>());
 
-    // Call gas limit as uint256 (32 bytes)
+    // Third parameter: call gas limit as uint256 (32 bytes)
     let call_gas_u256 = U256::from(call_gas_limit);
     data.extend_from_slice(&call_gas_u256.to_be_bytes::<32>());
 
-    // Total: 84 bytes (20 + 32 + 32)
-    // The bundler will split this into:
-    // - paymaster: first 20 bytes
-    // - paymasterData: remaining 64 bytes (the ABI-encoded gas limits)
+    // Total: 96 bytes (32 + 32 + 32)
+    // This is the complete ABI encoding the paymaster expects
     data
 }
 
