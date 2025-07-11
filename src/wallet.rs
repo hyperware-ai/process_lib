@@ -2579,7 +2579,7 @@ pub fn generate_eip2612_permit_signature<S: Signer>(
     domain_data.extend_from_slice(&domain_type_hash);
     domain_data.extend_from_slice(&name_hash);
     domain_data.extend_from_slice(&version_hash);
-    domain_data.extend_from_slice(&chain_id.to_be_bytes::<32>());
+    domain_data.extend_from_slice(&U256::from(chain_id).to_be_bytes::<32>());
     domain_data.extend_from_slice(token_address.as_slice());
     let domain_separator = Keccak256::digest(&domain_data);
     
@@ -2631,8 +2631,15 @@ pub fn get_usdc_permit_nonce(
     
     let token = resolve_name(token_address, provider.chain_id)?;
     
+    // Create a transaction request for the call
+    let tx = TransactionRequest {
+        to: Some(TxKind::Call(token)),
+        input: call_data.into(),
+        ..Default::default()
+    };
+    
     // Make the call
-    let result = provider.call(token, call_data, None)?;
+    let result = provider.call(tx, None)?;
     
     // Parse the result as U256
     if result.len() >= 32 {
@@ -2648,7 +2655,7 @@ pub fn encode_usdc_paymaster_data_with_permit<S: Signer>(
     paymaster: EthAddress,
     token_address: EthAddress,
     tba_address: EthAddress,
-    max_cost: U256,
+    _max_cost: U256,
     provider: &Provider,
     signer: &S,
 ) -> Result<Vec<u8>, WalletError> {
@@ -2709,7 +2716,7 @@ pub fn encode_usdc_paymaster_data_with_permit<S: Signer>(
 pub fn encode_usdc_paymaster_data(
     paymaster: EthAddress,
     token_address: EthAddress,
-    max_cost: U256,
+    _max_cost: U256,
 ) -> Vec<u8> {
     // For now, return a simplified version that we can use for testing
     // The real implementation should use encode_usdc_paymaster_data_with_permit
