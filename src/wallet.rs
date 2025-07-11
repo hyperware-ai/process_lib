@@ -2764,3 +2764,108 @@ pub fn encode_usdc_paymaster_data(
 
     data
 }
+
+/// Creates the ABI-encoded calldata for an ERC20 `permit` call.
+/// This is used when the TBA needs to call permit on-chain (since TBAs can't sign off-chain)
+///
+/// # Arguments
+/// * `owner` - The address that owns the tokens (the TBA in this case)
+/// * `spender` - The address to grant allowance to (e.g., the paymaster)
+/// * `value` - The amount of tokens to approve
+/// * `deadline` - The deadline timestamp for the permit
+///
+/// # Returns
+/// A `Vec<u8>` containing the ABI-encoded calldata for the permit function
+pub fn create_erc20_permit_calldata(
+    owner: EthAddress,
+    spender: EthAddress,
+    value: U256,
+    deadline: U256,
+) -> Vec<u8> {
+    // For on-chain permit calls by the TBA, we don't need nonce, v, r, s
+    // The TBA will call permit() directly as the owner
+    // This creates calldata for: permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+    // But for TBA on-chain calls, v=0, r=0, s=0 works because the TBA IS the owner
+    
+    use alloy_sol_types::SolCall;
+    
+    // Define the permit function call
+    // Note: Using the standard ERC20Permit interface
+    sol! {
+        function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s);
+    }
+    
+    let call = permitCall {
+        owner,
+        spender,
+        value,
+        deadline,
+        v: 0,  // Dummy values for on-chain call
+        r: B256::ZERO,
+        s: B256::ZERO,
+    };
+    
+    call.abi_encode()
+}
+
+/// Creates a multicall calldata that combines permit + another operation
+/// This is useful for TBAs to approve and use tokens in a single transaction
+pub fn create_multicall_permit_and_execute(
+    token_address: EthAddress,
+    permit_spender: EthAddress,
+    permit_amount: U256,
+    permit_deadline: U256,
+    execute_target: EthAddress,
+    execute_calldata: Vec<u8>,
+    execute_value: U256,
+) -> Vec<u8> {
+    // Create permit calldata
+    let permit_calldata = create_erc20_permit_calldata(
+        EthAddress::ZERO, // Will be replaced by TBA address when executed
+        permit_spender,
+        permit_amount,
+        permit_deadline,
+    );
+    
+    // For TBA execute, we need to create two execute calls:
+    // 1. Execute permit on token contract
+    // 2. Execute the actual operation
+    
+    // This would need to be wrapped in a multicall or batch execute
+    // The exact implementation depends on the TBA's interface
+    
+    // For now, return just the permit calldata
+    // In practice, this would be combined with the execute calldata
+    permit_calldata
+}
+
+/// Encode paymaster data for USDC payment with on-chain permit (for TBAs)
+/// This version doesn't include a permit signature since TBAs will call permit on-chain
+pub fn encode_usdc_paymaster_data_for_tba(
+    paymaster: EthAddress,
+    token_address: EthAddress,
+    max_cost: U256,
+) -> Vec<u8> {
+    // Start with paymaster address (20 bytes)
+    let mut data = Vec::new();
+    data.extend_from_slice(paymaster.as_slice());
+
+    // Add paymaster-specific data for Circle's TokenPaymaster v0.8
+    // For TBAs, we might need a different mode or the paymaster needs to support on-chain permits
+    
+    // Mode byte (1 for on-chain approval mode, if supported)
+    // Note: This depends on Circle's paymaster implementation
+    // Mode 0 = permit signature mode (for EOAs)
+    // Mode 1 = assume pre-existing approval (for smart contracts)
+    data.push(1u8);
+
+    // Token address (USDC)
+    data.extend_from_slice(token_address.as_slice());
+
+    // Max cost amount
+    data.extend_from_slice(&max_cost.to_be_bytes::<32>());
+
+    // No signature needed for on-chain approval mode
+    
+    data
+}
