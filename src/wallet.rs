@@ -2764,5 +2764,3 @@ pub fn encode_usdc_paymaster_data(
 
     data
 }
-
-
