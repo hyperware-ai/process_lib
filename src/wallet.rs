@@ -2630,17 +2630,17 @@ pub fn get_usdc_permit_nonce(
     call_data.extend_from_slice(owner.as_slice());
 
     let token = resolve_name(token_address, provider.chain_id)?;
-    
+
     // Create a transaction request for the call
     let tx = TransactionRequest {
         to: Some(TxKind::Call(token)),
         input: call_data.into(),
         ..Default::default()
     };
-    
+
     // Make the call
     let result = provider.call(tx, None)?;
-    
+
     // Parse the result as U256
     if result.len() >= 32 {
         Ok(U256::from_be_slice(&result[..32]))
