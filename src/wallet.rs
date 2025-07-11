@@ -2761,12 +2761,12 @@ pub fn encode_circle_paymaster_data(
     // ABI encoding includes the paymaster address as the first parameter
     // This matches the developer's example:
     // encode(["address", "uint256", "uint256"], ['0x0578cFB241215b77442a541325d6A4E6dFE700Ec', 500000, 300000])
-    
+
     // First parameter: paymaster address as uint256 (padded to 32 bytes)
     let mut padded_address = vec![0u8; 12]; // 12 zero bytes for padding
     padded_address.extend_from_slice(paymaster.as_slice()); // 20 bytes of address
     data.extend_from_slice(&padded_address);
-    
+
     // Second parameter: verification gas limit as uint256 (32 bytes)
     let verification_gas_u256 = U256::from(verification_gas_limit);
     data.extend_from_slice(&verification_gas_u256.to_be_bytes::<32>());
