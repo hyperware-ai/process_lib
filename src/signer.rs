@@ -97,7 +97,7 @@ pub trait Signer {
 
     /// Sign a message following Ethereum's personal_sign format
     fn sign_message(&self, message: &[u8]) -> Result<Vec<u8>, SignerError>;
-    
+
     /// Sign a raw hash without any prefix (for EIP-712 and similar)
     fn sign_hash(&self, hash: &[u8]) -> Result<Vec<u8>, SignerError>;
 }
@@ -372,17 +372,17 @@ impl Signer for LocalSigner {
             Err(e) => Err(SignerError::SigningError(e.to_string())),
         }
     }
-    
+
     fn sign_hash(&self, hash: &[u8]) -> Result<Vec<u8>, SignerError> {
         // Sign a raw hash without any prefix
         if hash.len() != 32 {
             return Err(SignerError::SigningError(
-                "Hash must be exactly 32 bytes".to_string()
+                "Hash must be exactly 32 bytes".to_string(),
             ));
         }
-        
+
         let hash_bytes = B256::from_slice(hash);
-        
+
         // Sign the hash directly
         match self.inner.sign_hash_sync(&hash_bytes) {
             Ok(signature) => Ok(signature.as_bytes().to_vec()),
