@@ -2786,25 +2786,25 @@ pub fn create_erc20_permit_calldata(
     // The TBA will call permit() directly as the owner
     // This creates calldata for: permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
     // But for TBA on-chain calls, v=0, r=0, s=0 works because the TBA IS the owner
-    
+
     use alloy_sol_types::SolCall;
-    
+
     // Define the permit function call
     // Note: Using the standard ERC20Permit interface
     sol! {
         function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s);
     }
-    
+
     let call = permitCall {
         owner,
         spender,
         value,
         deadline,
-        v: 0,  // Dummy values for on-chain call
+        v: 0, // Dummy values for on-chain call
         r: B256::ZERO,
         s: B256::ZERO,
     };
-    
+
     call.abi_encode()
 }
 
@@ -2826,14 +2826,14 @@ pub fn create_multicall_permit_and_execute(
         permit_amount,
         permit_deadline,
     );
-    
+
     // For TBA execute, we need to create two execute calls:
     // 1. Execute permit on token contract
     // 2. Execute the actual operation
-    
+
     // This would need to be wrapped in a multicall or batch execute
     // The exact implementation depends on the TBA's interface
-    
+
     // For now, return just the permit calldata
     // In practice, this would be combined with the execute calldata
     permit_calldata
@@ -2852,7 +2852,7 @@ pub fn encode_usdc_paymaster_data_for_tba(
 
     // Add paymaster-specific data for Circle's TokenPaymaster v0.8
     // For TBAs, we might need a different mode or the paymaster needs to support on-chain permits
-    
+
     // Mode byte (1 for on-chain approval mode, if supported)
     // Note: This depends on Circle's paymaster implementation
     // Mode 0 = permit signature mode (for EOAs)
@@ -2866,6 +2866,6 @@ pub fn encode_usdc_paymaster_data_for_tba(
     data.extend_from_slice(&max_cost.to_be_bytes::<32>());
 
     // No signature needed for on-chain approval mode
-    
+
     data
 }
