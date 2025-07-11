@@ -2634,10 +2634,8 @@ pub fn generate_eip2612_permit_signature<S: Signer>(
     let message_hash = Keccak256::digest(&message);
 
     // Sign the hash (raw signature without prefix)
-    // We need to sign the raw hash, not use sign_message which adds prefix
-    // For now, we'll use sign_message and strip the prefix behavior
-    // TODO: Add raw hash signing to Signer trait
-    let signature = signer.sign_message(&message_hash)?;
+    // Use sign_hash for EIP-712, not sign_message which adds prefix
+    let signature = signer.sign_hash(&message_hash)?;
 
     Ok(signature)
 }
@@ -2766,3 +2764,5 @@ pub fn encode_usdc_paymaster_data(
 
     data
 }
+
+
