@@ -2750,7 +2750,7 @@ pub fn encode_usdc_paymaster_data(
 }
 
 /// Encode paymaster data for Circle's USDC paymaster
-/// Format: abi.encodePacked(address paymaster, uint128 verificationGasLimit, uint128 callGasLimit)
+/// Format: abi.encode(address paymaster, uint256 verificationGasLimit, uint256 callGasLimit)
 pub fn encode_circle_paymaster_data(
     paymaster: EthAddress,
     verification_gas_limit: u128,
@@ -2758,16 +2758,21 @@ pub fn encode_circle_paymaster_data(
 ) -> Vec<u8> {
     let mut data = Vec::new();
 
-    // Paymaster address (20 bytes)
-    data.extend_from_slice(paymaster.as_slice());
+    // ABI encoding pads all values to 32 bytes
+    
+    // Paymaster address (32 bytes - padded on the left with zeros)
+    data.extend_from_slice(&[0u8; 12]); // 12 bytes of padding
+    data.extend_from_slice(paymaster.as_slice()); // 20 bytes of address
 
-    // Verification gas limit as uint128 (16 bytes)
-    data.extend_from_slice(&verification_gas_limit.to_be_bytes());
+    // Verification gas limit as uint256 (32 bytes)
+    let verification_gas_u256 = U256::from(verification_gas_limit);
+    data.extend_from_slice(&verification_gas_u256.to_be_bytes::<32>());
 
-    // Call gas limit as uint128 (16 bytes)
-    data.extend_from_slice(&call_gas_limit.to_be_bytes());
+    // Call gas limit as uint256 (32 bytes)
+    let call_gas_u256 = U256::from(call_gas_limit);
+    data.extend_from_slice(&call_gas_u256.to_be_bytes::<32>());
 
-    // Total: 52 bytes (20 + 16 + 16)
+    // Total: 96 bytes (32 + 32 + 32)
     data
 }
 
