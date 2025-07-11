@@ -2758,20 +2758,11 @@ pub fn encode_circle_paymaster_data(
 ) -> Vec<u8> {
     let mut data = Vec::new();
 
-<<<<<<< HEAD
     // First, add the paymaster address (20 bytes) - this will be extracted by the bundler
     data.extend_from_slice(paymaster.as_slice());
     
     // Then add the ABI-encoded gas limits (what the paymaster actually expects)
     
-=======
-    // ABI encoding pads all values to 32 bytes
-
-    // Paymaster address (32 bytes - padded on the left with zeros)
-    data.extend_from_slice(&[0u8; 12]); // 12 bytes of padding
-    data.extend_from_slice(paymaster.as_slice()); // 20 bytes of address
-
->>>>>>> 66fb6b87938620c790b3c23a12fa2d66f4ffbdd5
     // Verification gas limit as uint256 (32 bytes)
     let verification_gas_u256 = U256::from(verification_gas_limit);
     data.extend_from_slice(&verification_gas_u256.to_be_bytes::<32>());
