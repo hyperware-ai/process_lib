@@ -2459,6 +2459,32 @@ impl UserOperationBuilder {
 
         packed
     }
+
+    /// Set paymaster and paymaster data with EIP-2612 permit signature
+    pub fn paymaster_with_permit<S: Signer>(
+        mut self,
+        paymaster: EthAddress,
+        token_address: EthAddress,
+        max_cost: U256,
+        tba_address: EthAddress,
+        signer: &S,
+        provider: &Provider,
+    ) -> Result<Self, WalletError> {
+        // Generate paymaster data with real permit signature
+        let paymaster_data = encode_usdc_paymaster_data_with_signer(
+            paymaster,
+            token_address,
+            max_cost,
+            tba_address,
+            signer,
+            provider,
+        )?;
+        
+        // Set the combined paymaster and data
+        self.paymaster_and_data = paymaster_data;
+        
+        Ok(self)
+    }
 }
 
 /// Helper to create calldata for TBA execute through UserOp
@@ -2651,15 +2677,14 @@ pub fn get_usdc_permit_nonce(
     }
 }
 
-/// Encode paymaster data for USDC payment with EIP-2612 permit
-/// The format is: paymaster address (20 bytes) + paymaster-specific data
-pub fn encode_usdc_paymaster_data_with_permit<S: Signer>(
+/// Encode paymaster data for USDC payment with EIP-2612 permit signature
+pub fn encode_usdc_paymaster_data_with_signer<S: Signer>(
     paymaster: EthAddress,
     token_address: EthAddress,
+    max_cost: U256,
     tba_address: EthAddress,
-    _max_cost: U256,
-    provider: &Provider,
     signer: &S,
+    provider: &Provider,
 ) -> Result<Vec<u8>, WalletError> {
     // Start with paymaster address (20 bytes)
     let mut data = Vec::new();
@@ -2671,72 +2696,77 @@ pub fn encode_usdc_paymaster_data_with_permit<S: Signer>(
     // - address: USDC token address
     // - uint256: permit amount
     // - bytes: permit signature
-
+    
     // Mode byte (0 for permit mode)
     data.push(0u8);
-
+    
     // Token address (USDC)
     data.extend_from_slice(token_address.as_slice());
-
-    // Permit amount - use a reasonable amount for gas payment (10 USDC worth)
-    let permit_amount = U256::from(10_000_000u64); // 10 USDC (6 decimals)
-    data.extend_from_slice(&permit_amount.to_be_bytes::<32>());
-
-    // Generate EIP-2612 permit signature
-    // Get current nonce from USDC contract
+    
+    // Permit amount - use max_cost which should cover gas
+    data.extend_from_slice(&max_cost.to_be_bytes::<32>());
+    
+    // Get current nonce for the TBA from USDC contract
     let nonce = get_usdc_permit_nonce(&token_address.to_string(), tba_address, provider)?;
-
-    // Set deadline to 1 hour from now
-    let deadline = U256::from(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            + 3600,
-    );
-
+    
+    // Generate permit data
+    let deadline = U256::from(u64::MAX); // Max deadline
     let permit_data = PermitData {
         owner: tba_address,
         spender: paymaster,
-        value: permit_amount,
+        value: max_cost,
         nonce,
         deadline,
     };
-
-    let permit_signature =
-        generate_eip2612_permit_signature(&permit_data, token_address, provider.chain_id, signer)?;
-
-    // Append the permit signature
+    
+    // Generate the actual permit signature
+    let chain_id = provider.chain_id;
+    let permit_signature = generate_eip2612_permit_signature(
+        &permit_data,
+        token_address,
+        chain_id,
+        signer,
+    )?;
+    
+    // Add the real permit signature
     data.extend_from_slice(&permit_signature);
-
+    
     Ok(data)
 }
 
-/// Encode paymaster data for USDC payment (simplified version without permit for testing)
-/// The format is: paymaster address (20 bytes) + paymaster-specific data
+/// Encode paymaster data for USDC payment (keeping old function for compatibility)
+/// This version uses a dummy signature and will fail with AA33
 pub fn encode_usdc_paymaster_data(
     paymaster: EthAddress,
     token_address: EthAddress,
-    _max_cost: U256,
+    max_cost: U256,
 ) -> Vec<u8> {
-    // For now, return a simplified version that we can use for testing
-    // The real implementation should use encode_usdc_paymaster_data_with_permit
+    // Start with paymaster address (20 bytes)
     let mut data = Vec::new();
     data.extend_from_slice(paymaster.as_slice());
 
+    // Add paymaster-specific data for Circle's TokenPaymaster v0.8
+    // Format: encodePacked([uint8, address, uint256, bytes])
+    // - uint8: mode (0 for permit mode)
+    // - address: USDC token address
+    // - uint256: permit amount
+    // - bytes: permit signature (dummy for now)
+    
     // Mode byte (0 for permit mode)
     data.push(0u8);
-
+    
     // Token address (USDC)
     data.extend_from_slice(token_address.as_slice());
-
-    // Permit amount
-    let permit_amount = U256::from(10_000_000u64); // 10 USDC
+    
+    // Permit amount - use a reasonable amount for gas payment
+    // 10 USDC should be more than enough for any transaction
+    let permit_amount = U256::from(10_000_000u64); // 10 USDC in 6 decimal units
     data.extend_from_slice(&permit_amount.to_be_bytes::<32>());
-
-    // For testing, add a dummy 65-byte signature
-    // In production, this should be a real EIP-2612 permit signature
-    data.extend_from_slice(&[0u8; 65]);
-
+    
+    // Permit signature - DUMMY SIGNATURE
+    // In production, this needs to be a real EIP-2612 permit signature
+    let dummy_signature = vec![0u8; 65]; // r (32) + s (32) + v (1)
+    data.extend_from_slice(&dummy_signature);
+    
     data
 }
