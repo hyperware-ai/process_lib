@@ -2760,9 +2760,9 @@ pub fn encode_circle_paymaster_data(
 
     // First, add the paymaster address (20 bytes) - this will be extracted by the bundler
     data.extend_from_slice(paymaster.as_slice());
-    
+
     // Then add the ABI-encoded gas limits (what the paymaster actually expects)
-    
+
     // Verification gas limit as uint256 (32 bytes)
     let verification_gas_u256 = U256::from(verification_gas_limit);
     data.extend_from_slice(&verification_gas_u256.to_be_bytes::<32>());
