@@ -2328,7 +2328,10 @@ impl UserOperationBuilder {
         let user_op_hash = self.get_user_op_hash_v08(&packed_op, entry_point, self.chain_id);
 
         // Log the hash before signing
-        kiprintln!("PL:: UserOperation hash to sign: 0x{}", hex::encode(&user_op_hash));
+        kiprintln!(
+            "PL:: UserOperation hash to sign: 0x{}",
+            hex::encode(&user_op_hash)
+        );
         kiprintln!("PL:: Entry point: {}", entry_point);
         kiprintln!("PL:: Chain ID: {}", self.chain_id);
 
