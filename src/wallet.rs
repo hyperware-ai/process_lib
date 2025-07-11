@@ -2749,7 +2749,8 @@ pub fn encode_usdc_paymaster_data(
 }
 
 /// Encode paymaster data for Circle's USDC paymaster
-/// Format: abi.encode(address paymaster, uint256 verificationGasLimit, uint256 callGasLimit)
+/// Format: abi.encode(uint256 verificationGasLimit, uint256 callGasLimit)
+/// Note: The paymaster address is NOT included here - it goes in the separate paymaster field
 pub fn encode_circle_paymaster_data(
     paymaster: EthAddress,
     verification_gas_limit: u128,
@@ -2757,12 +2758,11 @@ pub fn encode_circle_paymaster_data(
 ) -> Vec<u8> {
     let mut data = Vec::new();
 
-    // ABI encoding pads all values to 32 bytes
+    // First, add the paymaster address (20 bytes) - this will be extracted by the bundler
+    data.extend_from_slice(paymaster.as_slice());
     
-    // Paymaster address (32 bytes - padded on the left with zeros)
-    data.extend_from_slice(&[0u8; 12]); // 12 bytes of padding
-    data.extend_from_slice(paymaster.as_slice()); // 20 bytes of address
-
+    // Then add the ABI-encoded gas limits (what the paymaster actually expects)
+    
     // Verification gas limit as uint256 (32 bytes)
     let verification_gas_u256 = U256::from(verification_gas_limit);
     data.extend_from_slice(&verification_gas_u256.to_be_bytes::<32>());
@@ -2771,7 +2771,10 @@ pub fn encode_circle_paymaster_data(
     let call_gas_u256 = U256::from(call_gas_limit);
     data.extend_from_slice(&call_gas_u256.to_be_bytes::<32>());
 
-    // Total: 96 bytes (32 + 32 + 32)
+    // Total: 84 bytes (20 + 32 + 32)
+    // The bundler will split this into:
+    // - paymaster: first 20 bytes
+    // - paymasterData: remaining 64 bytes (the ABI-encoded gas limits)
     data
 }
 
