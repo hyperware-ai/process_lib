@@ -2845,9 +2845,9 @@ pub fn create_multicall_permit_and_execute(
     permit_calldata
 }
 
-/// Encode paymaster data for USDC payment with on-chain permit (for TBAs)
-/// This version doesn't include a permit signature since TBAs will call permit on-chain
-/// DEPRECATED - We only use the simple Circle format now
+// Encode paymaster data for USDC payment with on-chain permit (for TBAs)
+// This version doesn't include a permit signature since TBAs will call permit on-chain
+// DEPRECATED - We only use the simple Circle format now
 /*
 pub fn encode_usdc_paymaster_data_for_tba(
     paymaster: EthAddress,
