@@ -2758,7 +2758,7 @@ pub fn encode_circle_paymaster_data(
     let mut data = Vec::new();
 
     // ABI encoding pads all values to 32 bytes
-    
+
     // Paymaster address (32 bytes - padded on the left with zeros)
     data.extend_from_slice(&[0u8; 12]); // 12 bytes of padding
     data.extend_from_slice(paymaster.as_slice()); // 20 bytes of address
