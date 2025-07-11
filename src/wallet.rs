@@ -2479,10 +2479,10 @@ impl UserOperationBuilder {
             signer,
             provider,
         )?;
-        
+
         // Set the combined paymaster and data
         self.paymaster_and_data = paymaster_data;
-        
+
         Ok(self)
     }
 }
@@ -2696,19 +2696,19 @@ pub fn encode_usdc_paymaster_data_with_signer<S: Signer>(
     // - address: USDC token address
     // - uint256: permit amount
     // - bytes: permit signature
-    
+
     // Mode byte (0 for permit mode)
     data.push(0u8);
-    
+
     // Token address (USDC)
     data.extend_from_slice(token_address.as_slice());
-    
+
     // Permit amount - use max_cost which should cover gas
     data.extend_from_slice(&max_cost.to_be_bytes::<32>());
-    
+
     // Get current nonce for the TBA from USDC contract
     let nonce = get_usdc_permit_nonce(&token_address.to_string(), tba_address, provider)?;
-    
+
     // Generate permit data
     let deadline = U256::from(u64::MAX); // Max deadline
     let permit_data = PermitData {
@@ -2718,19 +2718,15 @@ pub fn encode_usdc_paymaster_data_with_signer<S: Signer>(
         nonce,
         deadline,
     };
-    
+
     // Generate the actual permit signature
     let chain_id = provider.chain_id;
-    let permit_signature = generate_eip2612_permit_signature(
-        &permit_data,
-        token_address,
-        chain_id,
-        signer,
-    )?;
-    
+    let permit_signature =
+        generate_eip2612_permit_signature(&permit_data, token_address, chain_id, signer)?;
+
     // Add the real permit signature
     data.extend_from_slice(&permit_signature);
-    
+
     Ok(data)
 }
 
@@ -2751,22 +2747,22 @@ pub fn encode_usdc_paymaster_data(
     // - address: USDC token address
     // - uint256: permit amount
     // - bytes: permit signature (dummy for now)
-    
+
     // Mode byte (0 for permit mode)
     data.push(0u8);
-    
+
     // Token address (USDC)
     data.extend_from_slice(token_address.as_slice());
-    
+
     // Permit amount - use a reasonable amount for gas payment
     // 10 USDC should be more than enough for any transaction
     let permit_amount = U256::from(10_000_000u64); // 10 USDC in 6 decimal units
     data.extend_from_slice(&permit_amount.to_be_bytes::<32>());
-    
+
     // Permit signature - DUMMY SIGNATURE
     // In production, this needs to be a real EIP-2612 permit signature
     let dummy_signature = vec![0u8; 65]; // r (32) + s (32) + v (1)
     data.extend_from_slice(&dummy_signature);
-    
+
     data
 }
