@@ -2744,33 +2744,29 @@ pub fn encode_usdc_paymaster_data(
     token_address: EthAddress,
     max_cost: U256,
 ) -> Vec<u8> {
-    // Start with paymaster address (20 bytes)
+    // Use the new Circle format with default gas limits
+    encode_circle_paymaster_data(paymaster, 500_000, 300_000)
+}
+
+/// Encode paymaster data for Circle's USDC paymaster
+/// Format: abi.encodePacked(address paymaster, uint128 verificationGasLimit, uint128 callGasLimit)
+pub fn encode_circle_paymaster_data(
+    paymaster: EthAddress,
+    verification_gas_limit: u128,
+    call_gas_limit: u128,
+) -> Vec<u8> {
     let mut data = Vec::new();
+    
+    // Paymaster address (20 bytes)
     data.extend_from_slice(paymaster.as_slice());
-
-    // Add paymaster-specific data for Circle's TokenPaymaster v0.8
-    // Format: encodePacked([uint8, address, uint256, bytes])
-    // - uint8: mode (0 for permit mode)
-    // - address: USDC token address
-    // - uint256: permit amount
-    // - bytes: permit signature (dummy for now)
-
-    // Mode byte (0 for permit mode)
-    data.push(0u8);
-
-    // Token address (USDC)
-    data.extend_from_slice(token_address.as_slice());
-
-    // Permit amount - use a reasonable amount for gas payment
-    // 10 USDC should be more than enough for any transaction
-    let permit_amount = U256::from(10_000_000u64); // 10 USDC in 6 decimal units
-    data.extend_from_slice(&permit_amount.to_be_bytes::<32>());
-
-    // Permit signature - DUMMY SIGNATURE
-    // In production, this needs to be a real EIP-2612 permit signature
-    let dummy_signature = vec![0u8; 65]; // r (32) + s (32) + v (1)
-    data.extend_from_slice(&dummy_signature);
-
+    
+    // Verification gas limit as uint128 (16 bytes)
+    data.extend_from_slice(&verification_gas_limit.to_be_bytes());
+    
+    // Call gas limit as uint128 (16 bytes)  
+    data.extend_from_slice(&call_gas_limit.to_be_bytes());
+    
+    // Total: 52 bytes (20 + 16 + 16)
     data
 }
 
