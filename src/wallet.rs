@@ -2756,16 +2756,16 @@ pub fn encode_circle_paymaster_data(
     call_gas_limit: u128,
 ) -> Vec<u8> {
     let mut data = Vec::new();
-    
+
     // Paymaster address (20 bytes)
     data.extend_from_slice(paymaster.as_slice());
-    
+
     // Verification gas limit as uint128 (16 bytes)
     data.extend_from_slice(&verification_gas_limit.to_be_bytes());
-    
-    // Call gas limit as uint128 (16 bytes)  
+
+    // Call gas limit as uint128 (16 bytes)
     data.extend_from_slice(&call_gas_limit.to_be_bytes());
-    
+
     // Total: 52 bytes (20 + 16 + 16)
     data
 }
