@@ -2482,9 +2482,8 @@ impl UserOperationBuilder {
         // Use simple Circle format - no permit signature needed
         // The TBA has already approved the paymaster to spend USDC
         let paymaster_data = encode_circle_paymaster_data(
-            paymaster,
-            500_000,  // Default verification gas limit
-            300_000,  // Default call gas limit
+            paymaster, 500_000, // Default verification gas limit
+            300_000, // Default call gas limit
         );
 
         // Set the combined paymaster and data
