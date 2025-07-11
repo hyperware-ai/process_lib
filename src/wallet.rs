@@ -2665,10 +2665,10 @@ pub fn encode_usdc_paymaster_data_with_permit<S: Signer>(
     
     // Mode byte (0 for permit mode)
     data.push(0u8);
-    
+
     // Token address (USDC)
     data.extend_from_slice(token_address.as_slice());
-    
+
     // Permit amount - use a reasonable amount for gas payment (10 USDC worth)
     let permit_amount = U256::from(10_000_000u64); // 10 USDC (6 decimals)
     data.extend_from_slice(&permit_amount.to_be_bytes::<32>());
