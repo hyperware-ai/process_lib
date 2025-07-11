@@ -2462,14 +2462,14 @@ impl UserOperationBuilder {
 
     /// Set paymaster and paymaster data with EIP-2612 permit signature
     pub fn paymaster_with_permit<S: Signer>(
-        mut self,
+        &mut self,
         paymaster: EthAddress,
         token_address: EthAddress,
         max_cost: U256,
         tba_address: EthAddress,
         signer: &S,
         provider: &Provider,
-    ) -> Result<Self, WalletError> {
+    ) -> Result<(), WalletError> {
         // Generate paymaster data with real permit signature
         let paymaster_data = encode_usdc_paymaster_data_with_signer(
             paymaster,
@@ -2479,11 +2479,11 @@ impl UserOperationBuilder {
             signer,
             provider,
         )?;
-
+        
         // Set the combined paymaster and data
         self.paymaster_and_data = paymaster_data;
-
-        Ok(self)
+        
+        Ok(())
     }
 }
 
