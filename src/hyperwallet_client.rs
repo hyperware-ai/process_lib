@@ -1,27 +1,22 @@
 //! High-level, ergonomic client for interacting with the `hyperwallet:hyperwallet:*` service.
 //!
 //! This module provides a type-safe and convenient way for Hyperware processes to manage
-//! wallets and perform blockchain operations by communicating with the system's central
-//! Hyperwallet service. The primary entry point is the `initialize` function, which
-//! performs the handshake protocol to establish a session. 
-//! The main use of sessions is to tie it with wallets' "unlocked" state. Currently, I don't really
-//! use it, but it might be an easier handle than the process string.
+//! wallets and perform blockchain operations. The primary entry point is the `initialize`
+//! function, which performs the handshake protocol. 
 //!
 //! It contains a public `types` submodule that defines the entire protocol, which is
 //! also used by the Hyperwallet server process to ensure compatibility.
 
-
 use crate::{Address, Request};
-use serde::{de::DeserializeOwned};
 use thiserror::Error;
 
-// Re-export the most important types for convenience for developers using this client.
+// Re-export the most important types for convenience.
 pub use types::{
     HandshakeConfig, Operation, OperationCategory, OperationError, ProcessPermissions, SessionInfo,
     SpendingLimits,
 };
 
-/// The static address of the system's Hyperwallet service. (TODO: change when system package)
+/// The static address of the system's Hyperwallet service.
 const HYPERWALLET_ADDRESS: &str = "hyperwallet:hyperwallet:sys";
 
 /// Errors that can occur when interacting with the Hyperwallet client.
@@ -42,22 +37,21 @@ pub enum HyperwalletClientError {
 }
 
 /// Performs the full handshake and registration protocol with the Hyperwallet service.
-/// This is the primary entry point for any process wanting to use Hyperwallet.
-///
-/// On success, it returns a `SessionInfo` containing the session ID required for
-/// all subsequent calls.
-pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletClientError> {
-    let our_address = crate::our();
+/// The calling process must provide its own address (`our`).
+pub fn initialize(
+    our: &Address,
+    config: HandshakeConfig,
+) -> Result<SessionInfo, HyperwalletClientError> {
     let client_name = config
         .client_name
-        .unwrap_or_else(|| our_address.process().to_string());
+        .unwrap_or_else(|| our.process().to_string());
 
     // Step 1: Send ClientHello
     let hello_step = types::HandshakeStep::ClientHello {
         client_version: env!("CARGO_PKG_VERSION").to_string(),
         client_name,
     };
-    let welcome_response: types::OperationResponse = send_handshake_step(hello_step, &our_address)?;
+    let welcome_response: types::OperationResponse = send_handshake_step(hello_step, our)?;
 
     // Step 2: Parse ServerWelcome and check compatibility
     let welcome_data = welcome_response.data.ok_or_else(|| {
@@ -83,7 +77,7 @@ pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletCli
         required_operations: config.required_operations.into_iter().collect(),
         spending_limits: config.spending_limits,
     };
-    let complete_response = send_handshake_step(register_step, &our_address)?;
+    let complete_response = send_handshake_step(register_step, our)?;
 
     // Step 4: Parse Complete and return SessionInfo
     let complete_data = complete_response.data.ok_or_else(|| {
@@ -95,51 +89,16 @@ pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletCli
     serde_json::from_value(complete_data).map_err(HyperwalletClientError::Deserialization)
 }
 
-/// Generic helper to create and send an `OperationRequest` to Hyperwallet.
-/// yeah, not really necessary
-fn send_request<T: DeserializeOwned>(
-    _session_info: &SessionInfo,
-    operation: Operation,
-    params: serde_json::Value,
-    wallet_id: Option<String>,
-    chain_id: Option<u64>,
-) -> Result<T, HyperwalletClientError> {
-    let request = types::OperationRequest {
-        operation,
-        params,
-        wallet_id,
-        chain_id,
-        // The session_id would be included here in the auth struct if needed
-        auth: types::ProcessAuth {
-            process_address: crate::our().to_string(),
-            signature: None,
-        },
-        request_id: None,
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
-    };
-
-    let response: types::OperationResponse = execute_request(request)?;
-    match response.data {
-        Some(data) => serde_json::from_value(data).map_err(HyperwalletClientError::Deserialization),
-        None => Err(HyperwalletClientError::ServerError(
-            types::OperationError::internal_error("Operation succeeded but returned no data"),
-        )),
-    }
-}
-
-// Internal helper for the handshake steps which don't have a session yet.
+// Internal helper for the handshake steps.
 fn send_handshake_step(
     step: types::HandshakeStep,
-    our_address: &Address,
+    our: &Address,
 ) -> Result<types::OperationResponse, HyperwalletClientError> {
     let request = types::OperationRequest {
         operation: Operation::Handshake,
         params: serde_json::to_value(step).map_err(HyperwalletClientError::Serialization)?,
         auth: types::ProcessAuth {
-            process_address: our_address.to_string(),
+            process_address: our.to_string(),
             signature: None,
         },
         wallet_id: None,
@@ -161,8 +120,8 @@ fn execute_request(
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?;
 
-    let op_response: types::OperationResponse = serde_json::from_slice(response.body())
-        .map_err(HyperwalletClientError::Deserialization)?;
+    let op_response: types::OperationResponse =
+        serde_json::from_slice(response.body()).map_err(HyperwalletClientError::Deserialization)?;
 
     if !op_response.success {
         return Err(HyperwalletClientError::ServerError(
@@ -247,12 +206,17 @@ pub mod types {
 
     impl Operation {
         pub fn all() -> Vec<Operation> {
-            // In a real implementation, this would list all variants
+            // A full implementation would use a macro or list all variants.
+            // This is a placeholder.
             vec![]
         }
+
         pub fn category(&self) -> OperationCategory {
             match self {
                 Operation::Handshake | Operation::UnlockWallet => OperationCategory::System,
+                Operation::RegisterProcess | Operation::UpdateSpendingLimits => {
+                    OperationCategory::ProcessManagement
+                }
                 // ... other categories ...
                 _ => OperationCategory::Query,
             }
@@ -313,9 +277,7 @@ pub mod types {
             spending_limits: Option<SpendingLimits>,
         },
     }
-    
-    // All other request/response and permission structs
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct OperationRequest {
         pub operation: Operation,
@@ -348,7 +310,7 @@ pub mod types {
         pub message: String,
         pub details: Option<serde_json::Value>,
     }
-    
+
     impl OperationError {
         pub fn internal_error(message: &str) -> Self {
             Self {
@@ -375,7 +337,7 @@ pub mod types {
         OperationNotSupported,
         VersionMismatch,
     }
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize, Default)]
     pub struct SpendingLimits {
         pub per_tx_eth: Option<String>,
