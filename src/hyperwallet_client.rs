@@ -3,16 +3,15 @@
 //! This module provides a type-safe and convenient way for Hyperware processes to manage
 //! wallets and perform blockchain operations by communicating with the system's central
 //! Hyperwallet service. The primary entry point is the `initialize` function, which
-//! performs the handshake protocol to establish a session. 
+//! performs the handshake protocol to establish a session.
 //! The main use of sessions is to tie it with wallets' "unlocked" state. Currently, I don't really
 //! use it, but it might be an easier handle than the process string.
 //!
 //! It contains a public `types` submodule that defines the entire protocol, which is
 //! also used by the Hyperwallet server process to ensure compatibility.
 
-
 use crate::{Address, Request};
-use serde::{de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 use thiserror::Error;
 
 // Re-export the most important types for convenience for developers using this client.
@@ -161,8 +160,8 @@ fn execute_request(
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?;
 
-    let op_response: types::OperationResponse = serde_json::from_slice(response.body())
-        .map_err(HyperwalletClientError::Deserialization)?;
+    let op_response: types::OperationResponse =
+        serde_json::from_slice(response.body()).map_err(HyperwalletClientError::Deserialization)?;
 
     if !op_response.success {
         return Err(HyperwalletClientError::ServerError(
@@ -313,9 +312,9 @@ pub mod types {
             spending_limits: Option<SpendingLimits>,
         },
     }
-    
+
     // All other request/response and permission structs
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct OperationRequest {
         pub operation: Operation,
@@ -348,7 +347,7 @@ pub mod types {
         pub message: String,
         pub details: Option<serde_json::Value>,
     }
-    
+
     impl OperationError {
         pub fn internal_error(message: &str) -> Self {
             Self {
@@ -375,7 +374,7 @@ pub mod types {
         OperationNotSupported,
         VersionMismatch,
     }
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize, Default)]
     pub struct SpendingLimits {
         pub per_tx_eth: Option<String>,
