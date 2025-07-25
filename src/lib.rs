@@ -77,6 +77,8 @@ pub mod wallet;
 /// A set of types and macros for writing "script" processes.
 pub mod scripting;
 
+pub mod hyperwallet_client;
+
 mod types;
 pub use types::{
     address::{Address, AddressParseError},
