@@ -26,7 +26,7 @@ use crate::{Address, Request};
 use thiserror::Error;
 
 /// The static address of the system's Hyperwallet service.
-const HYPERWALLET_ADDRESS: &str = "hyperwallet:hyperwallet:sys";
+const HYPERWALLET_ADDRESS: &str = "hyperwallet:hyperwallet:hallman.hypr";
 
 /// Errors that can occur when interacting with the Hyperwallet client.
 #[derive(Debug, Error)]
