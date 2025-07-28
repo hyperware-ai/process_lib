@@ -93,21 +93,25 @@ pub fn initialize(
     // Extract session info from the Complete response
     let session_id = complete_data["session_id"]
         .as_str()
-        .ok_or_else(|| HyperwalletClientError::ServerError(
-            types::OperationError::internal_error("Missing session_id in Complete response")
-        ))?
+        .ok_or_else(|| {
+            HyperwalletClientError::ServerError(types::OperationError::internal_error(
+                "Missing session_id in Complete response",
+            ))
+        })?
         .to_string();
 
-    let registered_permissions: ProcessPermissions = 
+    let registered_permissions: ProcessPermissions =
         serde_json::from_value(complete_data["registered_permissions"].clone())
             .map_err(HyperwalletClientError::Deserialization)?;
 
     // Get server version from the earlier welcome response
     let server_version = welcome_data["server_version"]
         .as_str()
-        .ok_or_else(|| HyperwalletClientError::ServerError(
-            types::OperationError::internal_error("Missing server_version in ServerWelcome response")
-        ))?
+        .ok_or_else(|| {
+            HyperwalletClientError::ServerError(types::OperationError::internal_error(
+                "Missing server_version in ServerWelcome response",
+            ))
+        })?
         .to_string();
 
     Ok(SessionInfo {
