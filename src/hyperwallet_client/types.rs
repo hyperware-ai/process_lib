@@ -131,42 +131,58 @@ impl Operation {
     pub fn category(&self) -> OperationCategory {
         match self {
             Operation::Handshake | Operation::UnlockWallet => OperationCategory::System,
-            
+
             Operation::RegisterProcess | Operation::UpdateSpendingLimits => {
                 OperationCategory::ProcessManagement
             }
-            
-            Operation::CreateWallet | Operation::ImportWallet | Operation::DeleteWallet |
-            Operation::RenameWallet | Operation::ExportWallet | Operation::EncryptWallet |
-            Operation::DecryptWallet | Operation::GetWalletInfo | Operation::ListWallets |
-            Operation::SetWalletLimits => OperationCategory::WalletManagement,
-            
-            Operation::SendEth | Operation::SendToken | Operation::ApproveToken |
-            Operation::CallContract | Operation::SignTransaction | Operation::SignMessage |
-            Operation::GetBalance | Operation::GetTokenBalance | Operation::GetTransactionHistory |
-            Operation::EstimateGas | Operation::GetGasPrice | Operation::GetTransactionReceipt => {
-                OperationCategory::Ethereum
-            }
-            
-            Operation::ExecuteViaTba | Operation::CheckTbaOwnership | Operation::SetupTbaDelegation => {
-                OperationCategory::TokenBoundAccount
-            }
-            
-            Operation::BuildAndSignUserOperationForPayment | Operation::SubmitUserOperation |
-            Operation::BuildUserOperation | Operation::SignUserOperation |
-            Operation::BuildAndSignUserOperation | Operation::EstimateUserOperationGas |
-            Operation::GetUserOperationReceipt | Operation::ConfigurePaymaster => {
-                OperationCategory::ERC4337
-            }
-            
-            Operation::ResolveIdentity | Operation::CreateNote | Operation::ReadNote |
-            Operation::SetupDelegation | Operation::VerifyDelegation | Operation::MintEntry => {
-                OperationCategory::Hypermap
-            }
-            
-            Operation::BatchOperations | Operation::ScheduleOperation | Operation::CancelOperation => {
-                OperationCategory::Advanced
-            }
+
+            Operation::CreateWallet
+            | Operation::ImportWallet
+            | Operation::DeleteWallet
+            | Operation::RenameWallet
+            | Operation::ExportWallet
+            | Operation::EncryptWallet
+            | Operation::DecryptWallet
+            | Operation::GetWalletInfo
+            | Operation::ListWallets
+            | Operation::SetWalletLimits => OperationCategory::WalletManagement,
+
+            Operation::SendEth
+            | Operation::SendToken
+            | Operation::ApproveToken
+            | Operation::CallContract
+            | Operation::SignTransaction
+            | Operation::SignMessage
+            | Operation::GetBalance
+            | Operation::GetTokenBalance
+            | Operation::GetTransactionHistory
+            | Operation::EstimateGas
+            | Operation::GetGasPrice
+            | Operation::GetTransactionReceipt => OperationCategory::Ethereum,
+
+            Operation::ExecuteViaTba
+            | Operation::CheckTbaOwnership
+            | Operation::SetupTbaDelegation => OperationCategory::TokenBoundAccount,
+
+            Operation::BuildAndSignUserOperationForPayment
+            | Operation::SubmitUserOperation
+            | Operation::BuildUserOperation
+            | Operation::SignUserOperation
+            | Operation::BuildAndSignUserOperation
+            | Operation::EstimateUserOperationGas
+            | Operation::GetUserOperationReceipt
+            | Operation::ConfigurePaymaster => OperationCategory::ERC4337,
+
+            Operation::ResolveIdentity
+            | Operation::CreateNote
+            | Operation::ReadNote
+            | Operation::SetupDelegation
+            | Operation::VerifyDelegation
+            | Operation::MintEntry => OperationCategory::Hypermap,
+
+            Operation::BatchOperations
+            | Operation::ScheduleOperation
+            | Operation::CancelOperation => OperationCategory::Advanced,
         }
     }
 }
@@ -332,5 +348,3 @@ pub struct Balance {
     pub formatted: String,
     pub raw: String, // U256 as string
 }
-
- 

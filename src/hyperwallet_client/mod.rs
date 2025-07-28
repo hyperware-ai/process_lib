@@ -2,39 +2,24 @@
 //!
 //! This module provides a type-safe and convenient way for Hyperware processes to manage
 //! wallets and perform blockchain operations. The primary entry point is the `initialize`
-//! function, which performs the handshake protocol. 
+//! function, which performs the handshake protocol.
 //!
 //! It contains a public `types` submodule that defines the entire protocol, which is
 //! also used by the Hyperwallet server process to ensure compatibility.
 
-pub mod types;
 pub mod api;
+pub mod types;
 
-pub use types::{
-    Balance, HandshakeConfig, Operation, OperationCategory, OperationError, ProcessPermissions, 
-    SessionInfo, SpendingLimits, TxReceipt, UserOperationHash, Wallet,
-};
 pub use api::{
-    approve_token,
-    build_and_sign_user_operation_for_payment,
-    check_tba_ownership,
-    create_note,
-    create_wallet,
-    delete_wallet,
-    execute_via_tba,
-    get_balance,
-    get_token_balance,
-    get_user_operation_receipt,
-    get_wallet_info,
-    import_wallet,
-    list_wallets,
-    rename_wallet,
-    resolve_identity,
-    send_eth,
-    send_token,
-    set_wallet_limits,
-    submit_user_operation,
+    approve_token, build_and_sign_user_operation_for_payment, check_tba_ownership, create_note,
+    create_wallet, delete_wallet, execute_via_tba, get_balance, get_token_balance,
+    get_user_operation_receipt, get_wallet_info, import_wallet, list_wallets, rename_wallet,
+    resolve_identity, send_eth, send_token, set_wallet_limits, submit_user_operation,
     unlock_wallet,
+};
+pub use types::{
+    Balance, HandshakeConfig, Operation, OperationCategory, OperationError, ProcessPermissions,
+    SessionInfo, SpendingLimits, TxReceipt, UserOperationHash, Wallet,
 };
 
 use crate::{Address, Request};
@@ -151,4 +136,4 @@ pub(crate) fn execute_request(
     }
 
     Ok(op_response)
-} 
+}

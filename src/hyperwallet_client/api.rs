@@ -1,9 +1,9 @@
 //! Public API wrappers for Hyperwallet operations.
 
-use super::{execute_request, HyperwalletClientError};
 use super::types::{
     self, Balance, Operation, SessionInfo, SpendingLimits, TxReceipt, UserOperationHash, Wallet,
 };
+use super::{execute_request, HyperwalletClientError};
 use crate::Address;
 
 /// Creates a new wallet for the process.
@@ -14,7 +14,14 @@ pub fn create_wallet(
     password: Option<&str>,
 ) -> Result<Wallet, HyperwalletClientError> {
     let params = serde_json::json!({ "name": name, "password": password });
-    let request = build_request(our, session_info, Operation::CreateWallet, params, None, None);
+    let request = build_request(
+        our,
+        session_info,
+        Operation::CreateWallet,
+        params,
+        None,
+        None,
+    );
     let response = execute_request(request)?;
     serde_json::from_value(response.data.unwrap_or_default())
         .map_err(HyperwalletClientError::Deserialization)
@@ -167,7 +174,14 @@ pub fn import_wallet(
         "private_key": private_key,
         "password": password,
     });
-    let request = build_request(our, session_info, Operation::ImportWallet, params, None, None);
+    let request = build_request(
+        our,
+        session_info,
+        Operation::ImportWallet,
+        params,
+        None,
+        None,
+    );
     let response = execute_request(request)?;
     serde_json::from_value(response.data.unwrap_or_default())
         .map_err(HyperwalletClientError::Deserialization)
@@ -457,4 +471,4 @@ fn build_request(
             .unwrap()
             .as_secs(),
     }
-} 
+}
