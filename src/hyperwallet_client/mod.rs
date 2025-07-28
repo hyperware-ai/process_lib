@@ -145,7 +145,7 @@ pub(crate) fn execute_request(
     // Construct the full hyperwallet address using our node
     let process_id: crate::ProcessId = ("hyperwallet", "hyperwallet", "hallman.hypr").into();
     let hyperwallet_address = Address::new(our.node(), process_id);
-    
+
     let response = Request::new()
         .target(hyperwallet_address)
         .body(serde_json::to_vec(&request).map_err(HyperwalletClientError::Serialization)?)
