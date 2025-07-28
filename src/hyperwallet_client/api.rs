@@ -1,8 +1,6 @@
 //! Public API wrappers for Hyperwallet operations.
 
-use super::types::{
-    self, Balance, Operation, SessionInfo, SpendingLimits, TxReceipt, UserOperationHash, Wallet,
-};
+use super::types::{self, Balance, Operation, SessionInfo, SpendingLimits, TxReceipt, Wallet};
 use super::{execute_request, HyperwalletClientError};
 use crate::Address;
 
@@ -369,13 +367,32 @@ pub fn build_and_sign_user_operation_for_payment(
     session_info: &SessionInfo,
     wallet_id: &str,
     target: &str,
-    amount: &str,
+    call_data: &str,
+    value: Option<&str>,
+    use_paymaster: bool,
+    metadata: Option<serde_json::Map<String, serde_json::Value>>,
+    password: Option<&str>,
     chain_id: Option<u64>,
 ) -> Result<serde_json::Value, HyperwalletClientError> {
-    let params = serde_json::json!({
+    let mut params = serde_json::json!({
         "target": target,
-        "amount": amount,
+        "call_data": call_data,
+        "use_paymaster": use_paymaster,
     });
+
+    if let Some(v) = value {
+        params["value"] = serde_json::Value::String(v.to_string());
+    }
+
+    if let Some(pwd) = password {
+        params["password"] = serde_json::Value::String(pwd.to_string());
+    }
+
+    // Pass metadata through to hyperwallet
+    if let Some(meta) = metadata {
+        params["metadata"] = serde_json::Value::Object(meta);
+    }
+
     let request = build_request(
         our,
         session_info,
@@ -392,12 +409,15 @@ pub fn build_and_sign_user_operation_for_payment(
 pub fn submit_user_operation(
     our: &Address,
     session_info: &SessionInfo,
-    user_operation: serde_json::Value,
+    signed_user_operation: serde_json::Value,
     entry_point: &str,
-) -> Result<UserOperationHash, HyperwalletClientError> {
+    bundler_url: Option<&str>,
+    chain_id: Option<u64>,
+) -> Result<String, HyperwalletClientError> {
     let params = serde_json::json!({
-        "user_operation": user_operation,
+        "signed_user_operation": signed_user_operation,
         "entry_point": entry_point,
+        "bundler_url": bundler_url,
     });
     let request = build_request(
         our,
@@ -405,27 +425,37 @@ pub fn submit_user_operation(
         Operation::SubmitUserOperation,
         params,
         None,
-        None,
+        chain_id,
     );
     let response = execute_request(request, our)?;
-    serde_json::from_value(response.data.unwrap_or_default())
-        .map_err(HyperwalletClientError::Deserialization)
+
+    // Extract user_op_hash from response data
+    let data = response.data.unwrap_or_default();
+    data.get("user_op_hash")
+        .and_then(|h| h.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            HyperwalletClientError::ServerError(types::OperationError::internal_error(
+                "Missing UserOperation hash in response",
+            ))
+        })
 }
 
 /// Gets the receipt for a UserOperation.
 pub fn get_user_operation_receipt(
     our: &Address,
     session_info: &SessionInfo,
-    user_op_hash: &UserOperationHash,
+    user_op_hash: &str,
+    chain_id: Option<u64>,
 ) -> Result<serde_json::Value, HyperwalletClientError> {
-    let params = serde_json::json!({ "user_operation_hash": user_op_hash });
+    let params = serde_json::json!({ "user_op_hash": user_op_hash });
     let request = build_request(
         our,
         session_info,
         Operation::GetUserOperationReceipt,
         params,
         None,
-        None,
+        chain_id,
     );
     let response = execute_request(request, our)?;
     Ok(response.data.unwrap_or_default())
