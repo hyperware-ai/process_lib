@@ -231,14 +231,25 @@ pub struct SessionInfo {
 
 /// The steps involved in the handshake protocol.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "step")]
 pub enum HandshakeStep {
     ClientHello {
         client_version: String,
         client_name: String,
     },
+    ServerWelcome {
+        server_version: String,
+        supported_operations: Vec<Operation>,
+        supported_chains: Vec<u64>,
+        features: Vec<String>,
+    },
     Register {
         required_operations: Vec<Operation>,
         spending_limits: Option<SpendingLimits>,
+    },
+    Complete {
+        registered_permissions: ProcessPermissions,
+        session_id: String,
     },
 }
 

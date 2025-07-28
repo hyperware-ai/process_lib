@@ -148,13 +148,17 @@ pub fn unlock_wallet(
     wallet_id: &str,
     password: &str,
 ) -> Result<(), HyperwalletClientError> {
-    let params = serde_json::json!({ "password": password });
+    let params = serde_json::json!({
+        "session_id": session_info.session_id,
+        "wallet_id": wallet_id,
+        "password": password
+    });
     let request = build_request(
         our,
         session_info,
         Operation::UnlockWallet,
         params,
-        Some(wallet_id.to_string()),
+        None, // Don't duplicate wallet_id in request.wallet_id
         None,
     );
     execute_request(request, our)?;
