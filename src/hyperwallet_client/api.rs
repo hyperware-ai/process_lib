@@ -22,7 +22,7 @@ pub fn create_wallet(
         None,
         None,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     serde_json::from_value(response.data.unwrap_or_default())
         .map_err(HyperwalletClientError::Deserialization)
 }
@@ -45,7 +45,7 @@ pub fn send_eth(
         Some(wallet_id.to_string()),
         chain_id,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     serde_json::from_value(response.data.unwrap_or_default())
         .map_err(HyperwalletClientError::Deserialization)
 }
@@ -65,7 +65,7 @@ pub fn get_balance(
         Some(wallet_id.to_string()),
         chain_id,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     serde_json::from_value(response.data.unwrap_or_default())
         .map_err(HyperwalletClientError::Deserialization)
 }
@@ -85,7 +85,7 @@ pub fn create_note(
         None,
         chain_id,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     Ok(response.data.unwrap_or_default())
 }
 
@@ -113,7 +113,7 @@ pub fn execute_via_tba(
         None,
         chain_id,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     Ok(response.data.unwrap_or_default())
 }
 
@@ -137,7 +137,7 @@ pub fn check_tba_ownership(
         None,
         chain_id,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     Ok(response.data.unwrap_or_default())
 }
 
@@ -157,7 +157,7 @@ pub fn unlock_wallet(
         Some(wallet_id.to_string()),
         None,
     );
-    execute_request(request)?;
+    execute_request(request, our)?;
     Ok(())
 }
 
@@ -182,7 +182,7 @@ pub fn import_wallet(
         None,
         None,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     serde_json::from_value(response.data.unwrap_or_default())
         .map_err(HyperwalletClientError::Deserialization)
 }
@@ -200,7 +200,7 @@ pub fn list_wallets(
         None,
         None,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     serde_json::from_value(response.data.unwrap_or_default())
         .map_err(HyperwalletClientError::Deserialization)
 }
@@ -219,7 +219,7 @@ pub fn get_wallet_info(
         Some(wallet_id.to_string()),
         None,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     serde_json::from_value(response.data.unwrap_or_default())
         .map_err(HyperwalletClientError::Deserialization)
 }
@@ -238,7 +238,7 @@ pub fn delete_wallet(
         Some(wallet_id.to_string()),
         None,
     );
-    execute_request(request)?;
+    execute_request(request, our)?;
     Ok(())
 }
 
@@ -258,7 +258,7 @@ pub fn rename_wallet(
         Some(wallet_id.to_string()),
         None,
     );
-    execute_request(request)?;
+    execute_request(request, our)?;
     Ok(())
 }
 
@@ -278,7 +278,7 @@ pub fn set_wallet_limits(
         Some(wallet_id.to_string()),
         None,
     );
-    execute_request(request)?;
+    execute_request(request, our)?;
     Ok(())
 }
 
@@ -305,7 +305,7 @@ pub fn send_token(
         Some(wallet_id.to_string()),
         chain_id,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     serde_json::from_value(response.data.unwrap_or_default())
         .map_err(HyperwalletClientError::Deserialization)
 }
@@ -333,7 +333,7 @@ pub fn approve_token(
         Some(wallet_id.to_string()),
         chain_id,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     serde_json::from_value(response.data.unwrap_or_default())
         .map_err(HyperwalletClientError::Deserialization)
 }
@@ -355,7 +355,7 @@ pub fn get_token_balance(
         Some(wallet_id.to_string()),
         chain_id,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     Ok(response.data.unwrap_or_default())
 }
 
@@ -380,7 +380,7 @@ pub fn build_and_sign_user_operation_for_payment(
         Some(wallet_id.to_string()),
         chain_id,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     Ok(response.data.unwrap_or_default())
 }
 
@@ -403,7 +403,7 @@ pub fn submit_user_operation(
         None,
         None,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     serde_json::from_value(response.data.unwrap_or_default())
         .map_err(HyperwalletClientError::Deserialization)
 }
@@ -423,7 +423,7 @@ pub fn get_user_operation_receipt(
         None,
         None,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     Ok(response.data.unwrap_or_default())
 }
 
@@ -443,7 +443,7 @@ pub fn resolve_identity(
         None,
         chain_id,
     );
-    let response = execute_request(request)?;
+    let response = execute_request(request, our)?;
     Ok(response.data.unwrap_or_default())
 }
 

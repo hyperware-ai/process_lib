@@ -25,8 +25,8 @@ pub use types::{
 use crate::{Address, Request};
 use thiserror::Error;
 
-/// The static address of the system's Hyperwallet service.
-const HYPERWALLET_ADDRESS: &str = "hyperwallet:hyperwallet:hallman.hypr";
+/// The process identifier for the system's Hyperwallet service.
+const HYPERWALLET_PROCESS: &str = "hyperwallet:hyperwallet:hallman.hypr";
 
 /// Errors that can occur when interacting with the Hyperwallet client.
 #[derive(Debug, Error)]
@@ -110,15 +110,20 @@ fn send_handshake_step(
         request_id: None,
         timestamp: 0,
     };
-    execute_request(request)
+    execute_request(request, our)
 }
 
 // The lowest-level helper that handles sending all requests.
 pub(crate) fn execute_request(
     request: types::OperationRequest,
+    our: &Address,
 ) -> Result<types::OperationResponse, HyperwalletClientError> {
+    // Construct the full hyperwallet address using our node
+    let process_id: crate::ProcessId = ("hyperwallet", "hyperwallet", "hallman.hypr").into();
+    let hyperwallet_address = Address::new(our.node(), process_id);
+    
     let response = Request::new()
-        .target(HYPERWALLET_ADDRESS.parse::<Address>().unwrap())
+        .target(hyperwallet_address)
         .body(serde_json::to_vec(&request).map_err(HyperwalletClientError::Serialization)?)
         .send_and_await_response(5) // 5s timeout
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?
