@@ -711,7 +711,7 @@ pub fn resolve_identity(
 pub fn create_tba_payment_calldata(
     usdc_contract: &str,
     recipient_address: &str,
-    amount_usdc: f64,
+    amount_usdc: u128,
 ) -> Result<String, HyperwalletClientError> {
     // Parse addresses
     let usdc_addr = usdc_contract.parse::<EthAddress>()
@@ -725,7 +725,7 @@ pub fn create_tba_payment_calldata(
         ))?;
     
     // Convert USDC amount to units (6 decimals)
-    let amount_units = (amount_usdc * 1_000_000.0) as u128;
+    let amount_units = amount_usdc * 1_000_000;
     
     // Create ERC20 transfer calldata using wallet.rs
     let erc20_calldata = wallet::create_erc20_transfer_calldata(recipient_addr, U256::from(amount_units));
@@ -749,7 +749,7 @@ pub fn execute_complete_gasless_payment(
     signer_wallet_id: &str,
     tba_address: &str,
     recipient_address: &str,
-    amount_usdc: f64,
+    amount_usdc: u128,
     chain_id: u64,
 ) -> Result<String, HyperwalletClientError> {
     // Step 1: Get USDC contract for the chain
@@ -847,7 +847,7 @@ pub fn validate_gasless_payment_setup(
 pub fn create_usdc_payment_calldata(
     usdc_contract: &str,
     recipient_address: &str,
-    amount_usdc: f64,
+    amount_usdc: u128,
 ) -> Result<String, HyperwalletClientError> {
     create_tba_payment_calldata(usdc_contract, recipient_address, amount_usdc)
 }
