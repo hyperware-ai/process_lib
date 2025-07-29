@@ -2,7 +2,7 @@
 
 use super::types::{self, Balance, Operation, SessionInfo, SpendingLimits, TxReceipt, Wallet};
 use super::{execute_request, HyperwalletClientError};
-use crate::{Address, wallet};
+use crate::{wallet, Address};
 use alloy_primitives::{Address as EthAddress, U256};
 
 /// Creates a new wallet for the process.
@@ -714,30 +714,33 @@ pub fn create_tba_payment_calldata(
     amount_usdc: u128,
 ) -> Result<String, HyperwalletClientError> {
     // Parse addresses
-    let usdc_addr = usdc_contract.parse::<EthAddress>()
-        .map_err(|_| HyperwalletClientError::ServerError(
-            super::types::OperationError::invalid_params("Invalid USDC contract address")
-        ))?;
-    
-    let recipient_addr = recipient_address.parse::<EthAddress>()
-        .map_err(|_| HyperwalletClientError::ServerError(
-            super::types::OperationError::invalid_params("Invalid recipient address")
-        ))?;
-    
+    let usdc_addr = usdc_contract.parse::<EthAddress>().map_err(|_| {
+        HyperwalletClientError::ServerError(super::types::OperationError::invalid_params(
+            "Invalid USDC contract address",
+        ))
+    })?;
+
+    let recipient_addr = recipient_address.parse::<EthAddress>().map_err(|_| {
+        HyperwalletClientError::ServerError(super::types::OperationError::invalid_params(
+            "Invalid recipient address",
+        ))
+    })?;
+
     // Convert USDC amount to units (6 decimals)
     let amount_units = amount_usdc * 1_000_000;
     
     // Create ERC20 transfer calldata using wallet.rs
-    let erc20_calldata = wallet::create_erc20_transfer_calldata(recipient_addr, U256::from(amount_units));
-    
-    // Create TBA execute calldata using wallet.rs 
+    let erc20_calldata =
+        wallet::create_erc20_transfer_calldata(recipient_addr, U256::from(amount_units));
+
+    // Create TBA execute calldata using wallet.rs
     let tba_calldata = wallet::create_tba_userop_calldata(
-        usdc_addr,           // target: USDC contract
-        U256::ZERO,          // value: 0 (no ETH transfer)
-        erc20_calldata,      // data: ERC20 transfer calldata
-        0,                   // operation: 0 = CALL
+        usdc_addr,      // target: USDC contract
+        U256::ZERO,     // value: 0 (no ETH transfer)
+        erc20_calldata, // data: ERC20 transfer calldata
+        0,              // operation: 0 = CALL
     );
-    
+
     Ok(format!("0x{}", hex::encode(tba_calldata)))
 }
 
@@ -756,14 +759,19 @@ pub fn execute_complete_gasless_payment(
     let usdc_contract = match chain_id {
         8453 => "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Base USDC
         1 => "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",    // Mainnet USDC
-        _ => return Err(HyperwalletClientError::ServerError(
-            super::types::OperationError::invalid_params(&format!("Unsupported chain ID: {}", chain_id))
-        )),
+        _ => {
+            return Err(HyperwalletClientError::ServerError(
+                super::types::OperationError::invalid_params(&format!(
+                    "Unsupported chain ID: {}",
+                    chain_id
+                )),
+            ))
+        }
     };
-    
+
     // Step 2: Create payment calldata using wallet.rs functions
     let tba_calldata = create_tba_payment_calldata(usdc_contract, recipient_address, amount_usdc)?;
-    
+
     // Step 3: Build and sign gasless payment
     let signed_data = build_and_sign_gasless_payment(
         our,
@@ -773,26 +781,17 @@ pub fn execute_complete_gasless_payment(
         &tba_calldata,
         Some(chain_id),
     )?;
-    
+
     // Step 4: Submit payment
-    let user_op_hash = submit_gasless_payment(
-        our,
-        session_info,
-        signed_data,
-        Some(chain_id),
-    )?;
-    
+    let user_op_hash = submit_gasless_payment(our, session_info, signed_data, Some(chain_id))?;
+
     // Step 5: Get receipt and extract transaction hash
-    let (tx_hash, _receipt) = get_payment_receipt(
-        our,
-        session_info,
-        &user_op_hash,
-        Some(chain_id),
-    ).unwrap_or_else(|_| {
-        // Fallback to user op hash if receipt fails
-        (user_op_hash.clone(), serde_json::Value::Null)
-    });
-    
+    let (tx_hash, _receipt) = get_payment_receipt(our, session_info, &user_op_hash, Some(chain_id))
+        .unwrap_or_else(|_| {
+            // Fallback to user op hash if receipt fails
+            (user_op_hash.clone(), serde_json::Value::Null)
+        });
+
     Ok(tx_hash)
 }
 
@@ -808,38 +807,52 @@ pub fn validate_gasless_payment_setup(
     let usdc_contract = match chain_id {
         8453 => "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Base USDC
         1 => "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",    // Mainnet USDC
-        _ => return Err(HyperwalletClientError::ServerError(
-            super::types::OperationError::invalid_params(&format!("Unsupported chain ID: {}", chain_id))
-        )),
+        _ => {
+            return Err(HyperwalletClientError::ServerError(
+                super::types::OperationError::invalid_params(&format!(
+                    "Unsupported chain ID: {}",
+                    chain_id
+                )),
+            ))
+        }
     };
-    
+
     // Check if operator TBA is configured
     let operator_tba = match tba_address {
         Some(addr) => addr.clone(),
-        None => return Err(HyperwalletClientError::ServerError(
-            super::types::OperationError::invalid_params("Operator TBA not configured")
-        )),
+        None => {
+            return Err(HyperwalletClientError::ServerError(
+                super::types::OperationError::invalid_params("Operator TBA not configured"),
+            ))
+        }
     };
-    
+
     // Validate recipient address format
-    recipient_address.parse::<EthAddress>()
-        .map_err(|_| HyperwalletClientError::ServerError(
-            super::types::OperationError::invalid_params("Invalid recipient address")
-        ))?;
-    
+    recipient_address.parse::<EthAddress>().map_err(|_| {
+        HyperwalletClientError::ServerError(super::types::OperationError::invalid_params(
+            "Invalid recipient address",
+        ))
+    })?;
+
     // Parse and validate USDC amount
-    let amount_usdc = amount_usdc_str.parse::<f64>()
-        .map_err(|_| HyperwalletClientError::ServerError(
-            super::types::OperationError::invalid_params("Invalid USDC amount")
-        ))?;
-    
+    let amount_usdc = amount_usdc_str.parse::<f64>().map_err(|_| {
+        HyperwalletClientError::ServerError(super::types::OperationError::invalid_params(
+            "Invalid USDC amount",
+        ))
+    })?;
+
     if amount_usdc <= 0.0 {
         return Err(HyperwalletClientError::ServerError(
-            super::types::OperationError::invalid_params("USDC amount must be positive")
+            super::types::OperationError::invalid_params("USDC amount must be positive"),
         ));
     }
-    
-    Ok((usdc_contract.to_string(), operator_tba, recipient_address.to_string(), amount_usdc))
+
+    Ok((
+        usdc_contract.to_string(),
+        operator_tba,
+        recipient_address.to_string(),
+        amount_usdc,
+    ))
 }
 
 /// Creates TBA execute calldata for a USDC payment.
@@ -859,9 +872,7 @@ pub fn extract_payment_tx_hash(
     user_op_hash_fallback: &str,
 ) -> String {
     match receipt_result {
-        Ok((tx_hash, _receipt)) => {
-            tx_hash
-        }
+        Ok((tx_hash, _receipt)) => tx_hash,
         Err(_) => {
             // Fallback to user op hash if receipt fails
             user_op_hash_fallback.to_string()

@@ -286,23 +286,23 @@ pub struct OperationError {
     pub details: Option<serde_json::Value>,
 }
 
-    impl OperationError {
-        pub fn internal_error(message: &str) -> Self {
-            Self {
-                code: ErrorCode::InternalError,
-                message: message.to_string(),
-                details: None,
-            }
-        }
-        
-        pub fn invalid_params(message: &str) -> Self {
-            Self {
-                code: ErrorCode::InvalidParams,
-                message: message.to_string(),
-                details: None,
-            }
+impl OperationError {
+    pub fn internal_error(message: &str) -> Self {
+        Self {
+            code: ErrorCode::InternalError,
+            message: message.to_string(),
+            details: None,
         }
     }
+
+    pub fn invalid_params(message: &str) -> Self {
+        Self {
+            code: ErrorCode::InvalidParams,
+            message: message.to_string(),
+            details: None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ErrorCode {
