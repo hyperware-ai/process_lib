@@ -13,10 +13,11 @@ pub mod types;
 pub use api::{
     approve_token, build_and_sign_gasless_payment, build_and_sign_user_operation, 
     build_and_sign_user_operation_for_payment, check_tba_ownership, create_note, create_wallet, 
-    delete_wallet, execute_gasless_payment, execute_via_tba, get_balance, get_payment_receipt,
+    create_tba_payment_calldata, create_usdc_payment_calldata, delete_wallet, execute_complete_gasless_payment, 
+    execute_gasless_payment, execute_via_tba, extract_payment_tx_hash, get_balance, get_payment_receipt, 
     get_token_balance, get_user_operation_receipt, get_wallet_info, import_wallet, list_wallets, 
-    rename_wallet, resolve_identity, send_eth, send_token, set_wallet_limits, submit_gasless_payment,
-    submit_user_operation, unlock_wallet,
+    rename_wallet, resolve_identity, send_eth, send_token, set_wallet_limits, submit_gasless_payment, 
+    submit_user_operation, unlock_wallet, validate_gasless_payment_setup,
 };
 pub use types::{
     Balance, HandshakeConfig, Operation, OperationCategory, OperationError, ProcessPermissions,
