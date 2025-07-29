@@ -379,20 +379,20 @@ pub fn build_and_sign_user_operation_for_payment(
         "call_data": call_data,
         "use_paymaster": use_paymaster,
     });
-    
+
     if let Some(v) = value {
         params["value"] = serde_json::Value::String(v.to_string());
     }
-    
+
     if let Some(pwd) = password {
         params["password"] = serde_json::Value::String(pwd.to_string());
     }
-    
+
     // Pass metadata through to hyperwallet
     if let Some(meta) = metadata {
         params["metadata"] = serde_json::Value::Object(meta);
     }
-    
+
     let request = build_request(
         our,
         session_info,
@@ -424,37 +424,43 @@ pub fn build_and_sign_user_operation(
         "call_data": call_data,
         "use_paymaster": use_paymaster,
     });
-    
+
     if let Some(v) = value {
         params["value"] = serde_json::Value::String(v.to_string());
     }
-    
+
     if let Some(pwd) = password {
         params["password"] = serde_json::Value::String(pwd.to_string());
     }
-    
+
     // Create metadata with Circle paymaster configuration if using paymaster
     if use_paymaster {
         let mut metadata = serde_json::Map::new();
-        
+
         // Always add Circle paymaster metadata for gasless transactions
         // These constants should be defined somewhere accessible
-        metadata.insert("paymaster_address".to_string(), 
-            serde_json::json!("0x2Ac3c1d3e24b45c6C310534Bc2Dd84B5ed576335")); // Base Circle paymaster
+        metadata.insert(
+            "paymaster_address".to_string(),
+            serde_json::json!("0x2Ac3c1d3e24b45c6C310534Bc2Dd84B5ed576335"),
+        ); // Base Circle paymaster
         metadata.insert("is_circle_paymaster".to_string(), serde_json::json!(true));
-        metadata.insert("paymaster_verification_gas".to_string(), 
-            serde_json::json!("0x30000")); // 196608
-        metadata.insert("paymaster_post_op_gas".to_string(), 
-            serde_json::json!("0x20000")); // 131072
-        
+        metadata.insert(
+            "paymaster_verification_gas".to_string(),
+            serde_json::json!("0x30000"),
+        ); // 196608
+        metadata.insert(
+            "paymaster_post_op_gas".to_string(),
+            serde_json::json!("0x20000"),
+        ); // 131072
+
         // Add TBA address if provided - tells hyperwallet to use TBA as sender
         if let Some(tba) = tba_address {
             metadata.insert("tba_address".to_string(), serde_json::json!(tba));
         }
-        
+
         params["metadata"] = serde_json::Value::Object(metadata);
     }
-    
+
     let request = build_request(
         our,
         session_info,
@@ -537,7 +543,7 @@ pub fn execute_gasless_payment(
 ) -> Result<serde_json::Value, HyperwalletClientError> {
     // Step 1: Initialize session if needed (you might want to cache this)
     let session = super::initialize(our, super::HandshakeConfig::new())?;
-    
+
     // Step 2: Build and sign UserOperation
     let signed_data = build_and_sign_user_operation(
         our,
@@ -551,20 +557,26 @@ pub fn execute_gasless_payment(
         password,
         chain_id,
     )?;
-    
+
     // Step 3: Extract signed UserOperation and entry point
-    let signed_user_op = signed_data.get("signed_user_operation")
-        .ok_or_else(|| HyperwalletClientError::ServerError(
-            super::types::OperationError::internal_error("Missing signed_user_operation in response")
-        ))?
+    let signed_user_op = signed_data
+        .get("signed_user_operation")
+        .ok_or_else(|| {
+            HyperwalletClientError::ServerError(super::types::OperationError::internal_error(
+                "Missing signed_user_operation in response",
+            ))
+        })?
         .clone();
-    
-    let entry_point = signed_data.get("entry_point")
+
+    let entry_point = signed_data
+        .get("entry_point")
         .and_then(|e| e.as_str())
-        .ok_or_else(|| HyperwalletClientError::ServerError(
-            super::types::OperationError::internal_error("Missing entry_point in response")
-        ))?;
-    
+        .ok_or_else(|| {
+            HyperwalletClientError::ServerError(super::types::OperationError::internal_error(
+                "Missing entry_point in response",
+            ))
+        })?;
+
     // Step 4: Submit UserOperation
     let user_op_hash = submit_user_operation(
         our,
@@ -574,10 +586,10 @@ pub fn execute_gasless_payment(
         None, // Use default bundler
         chain_id,
     )?;
-    
+
     // Step 5: Get receipt (you might want to add polling with timeout)
     let receipt = get_user_operation_receipt(our, &session, &user_op_hash, chain_id)?;
-    
+
     Ok(receipt)
 }
 
@@ -603,7 +615,7 @@ pub fn build_and_sign_gasless_payment(
             "paymaster_post_op_gas": "0x493e0"
         }
     });
-    
+
     let request = build_request(
         our,
         session_info,
@@ -624,20 +636,33 @@ pub fn submit_gasless_payment(
     chain_id: Option<u64>,
 ) -> Result<String, HyperwalletClientError> {
     // Extract signed UserOperation and entry point from the build response
-    let signed_user_op = signed_user_op_response.get("signed_user_operation")
-        .ok_or_else(|| HyperwalletClientError::ServerError(
-            super::types::OperationError::internal_error("Missing signed_user_operation in response")
-        ))?
+    let signed_user_op = signed_user_op_response
+        .get("signed_user_operation")
+        .ok_or_else(|| {
+            HyperwalletClientError::ServerError(super::types::OperationError::internal_error(
+                "Missing signed_user_operation in response",
+            ))
+        })?
         .clone();
-    
-    let entry_point = signed_user_op_response.get("entry_point")
+
+    let entry_point = signed_user_op_response
+        .get("entry_point")
         .and_then(|e| e.as_str())
-        .ok_or_else(|| HyperwalletClientError::ServerError(
-            super::types::OperationError::internal_error("Missing entry_point in response")
-        ))?;
-    
+        .ok_or_else(|| {
+            HyperwalletClientError::ServerError(super::types::OperationError::internal_error(
+                "Missing entry_point in response",
+            ))
+        })?;
+
     // Submit using the extracted data
-    submit_user_operation(our, session_info, signed_user_op, entry_point, None, chain_id)
+    submit_user_operation(
+        our,
+        session_info,
+        signed_user_op,
+        entry_point,
+        None,
+        chain_id,
+    )
 }
 
 /// Get receipt with proper transaction hash extraction.
@@ -648,14 +673,15 @@ pub fn get_payment_receipt(
     chain_id: Option<u64>,
 ) -> Result<(String, serde_json::Value), HyperwalletClientError> {
     let receipt = get_user_operation_receipt(our, session_info, user_op_hash, chain_id)?;
-    
+
     // Extract transaction hash if available
-    let tx_hash = receipt.get("receipt")
+    let tx_hash = receipt
+        .get("receipt")
         .and_then(|r| r.get("transactionHash"))
         .and_then(|h| h.as_str())
         .unwrap_or(user_op_hash) // Fallback to user op hash
         .to_string();
-    
+
     Ok((tx_hash, receipt))
 }
 
