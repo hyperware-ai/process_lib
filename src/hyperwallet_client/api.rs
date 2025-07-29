@@ -728,7 +728,7 @@ pub fn create_tba_payment_calldata(
 
     // Convert USDC amount to units (6 decimals)
     let amount_units = amount_usdc * 1_000_000;
-    
+
     // Create ERC20 transfer calldata using wallet.rs
     let erc20_calldata =
         wallet::create_erc20_transfer_calldata(recipient_addr, U256::from(amount_units));
