@@ -3,7 +3,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-// Type Aliases
 pub type ProcessAddress = String;
 pub type WalletAddress = String;
 pub type ChainId = u64;
@@ -11,7 +10,6 @@ pub type SessionId = String;
 pub type UserOperationHash = String;
 pub type Signature = Vec<u8>;
 
-/// All possible wallet operations that can be performed through the hyperwallet service.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum Operation {
     Handshake,
@@ -221,16 +219,14 @@ impl HandshakeConfig {
     }
 }
 
-/// Information about an established session with Hyperwallet.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionInfo {
     pub server_version: String,
     pub session_id: SessionId,
     pub registered_permissions: ProcessPermissions,
 }
 
-/// The steps involved in the handshake protocol.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "step")]
 pub enum HandshakeStep {
     ClientHello {
@@ -254,6 +250,182 @@ pub enum HandshakeStep {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessAuth {
+    pub process_address: String,
+    pub signature: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HyperwalletRequest<T> {
+    pub business_data: T,
+    pub wallet_id: Option<String>,
+    pub chain_id: Option<u64>,
+    pub auth: ProcessAuth,
+    pub request_id: Option<String>,
+    pub timestamp: u64,
+}
+
+/// Typed message enum for type-safe communication
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "operation")]
+pub enum HyperwalletMessage {
+    Handshake(HyperwalletRequest<HandshakeStep>),
+    CreateWallet(HyperwalletRequest<CreateWalletRequest>),
+    ImportWallet(HyperwalletRequest<ImportWalletRequest>),
+    UnlockWallet(HyperwalletRequest<UnlockWalletRequest>),
+    DeleteWallet(HyperwalletRequest<()>),
+    RenameWallet(HyperwalletRequest<RenameWalletRequest>),
+    ExportWallet(HyperwalletRequest<ExportWalletRequest>),
+    GetWalletInfo(HyperwalletRequest<()>),
+    ListWallets(HyperwalletRequest<()>),
+    SetWalletLimits(HyperwalletRequest<SpendingLimits>),
+    SendEth(HyperwalletRequest<SendEthRequest>),
+    SendToken(HyperwalletRequest<SendTokenRequest>),
+    ApproveToken(HyperwalletRequest<ApproveTokenRequest>),
+    GetBalance(HyperwalletRequest<()>),
+    GetTokenBalance(HyperwalletRequest<GetTokenBalanceRequest>),
+    ExecuteViaTba(HyperwalletRequest<ExecuteViaTbaRequest>),
+    CheckTbaOwnership(HyperwalletRequest<CheckTbaOwnershipRequest>),
+    BuildAndSignUserOperationForPayment(
+        HyperwalletRequest<BuildAndSignUserOperationForPaymentRequest>,
+    ),
+    SubmitUserOperation(HyperwalletRequest<SubmitUserOperationRequest>),
+    GetUserOperationReceipt(HyperwalletRequest<GetUserOperationReceiptRequest>),
+    ResolveIdentity(HyperwalletRequest<ResolveIdentityRequest>),
+    CreateNote(HyperwalletRequest<serde_json::Value>), // Flexible for notes
+}
+
+/// Unified response type
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HyperwalletResponse<T> {
+    pub success: bool,
+    pub data: Option<T>,
+    pub error: Option<OperationError>,
+    pub request_id: Option<String>,
+    pub timestamp: u64,
+}
+
+/// Configuration for Circle paymaster (gasless transactions)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaymasterConfig {
+    pub tba_address: Option<String>,
+    pub is_circle_paymaster: bool,
+    pub paymaster_address: String,
+    pub paymaster_verification_gas: String,
+    pub paymaster_post_op_gas: String,
+}
+
+impl Default for PaymasterConfig {
+    fn default() -> Self {
+        Self {
+            tba_address: None,
+            is_circle_paymaster: true,
+            paymaster_address: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec".to_string(), // Base Circle paymaster
+            paymaster_verification_gas: "0x7a120".to_string(),                           // 500000
+            paymaster_post_op_gas: "0x493e0".to_string(),                                // 300000
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildAndSignUserOperationForPaymentRequest {
+    pub target: String,
+    pub call_data: String,
+    pub value: Option<String>,
+    pub use_paymaster: bool,
+    pub paymaster_config: Option<PaymasterConfig>,
+    pub password: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateWalletRequest {
+    pub name: String,
+    pub password: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnlockWalletRequest {
+    pub session_id: String,
+    pub wallet_id: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportWalletRequest {
+    pub name: String,
+    pub private_key: String,
+    pub password: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenameWalletRequest {
+    pub new_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportWalletRequest {
+    pub password: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SendEthRequest {
+    pub to: String,
+    pub amount: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SendTokenRequest {
+    pub token_address: String,
+    pub to: String,
+    pub amount: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApproveTokenRequest {
+    pub token_address: String,
+    pub spender: String,
+    pub amount: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetTokenBalanceRequest {
+    pub token_address: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteViaTbaRequest {
+    pub tba_address: String,
+    pub target: String,
+    pub call_data: String,
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckTbaOwnershipRequest {
+    pub tba_address: String,
+    pub signer_address: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubmitUserOperationRequest {
+    pub signed_user_operation: serde_json::Value,
+    pub entry_point: String,
+    pub bundler_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetUserOperationReceiptRequest {
+    pub user_op_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolveIdentityRequest {
+    pub entry_name: String,
+}
+
+// === LEGACY COMPATIBILITY ===
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperationRequest {
     pub operation: Operation,
     pub params: serde_json::Value,
@@ -262,12 +434,6 @@ pub struct OperationRequest {
     pub auth: ProcessAuth,
     pub request_id: Option<String>,
     pub timestamp: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProcessAuth {
-    pub process_address: String,
-    pub signature: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -354,6 +520,19 @@ pub struct Wallet {
     pub name: Option<String>,
     pub chain_id: ChainId,
     pub encrypted: bool,
+    pub created_at: Option<String>,
+    pub last_used: Option<String>,
+    pub spending_limits: Option<WalletSpendingLimits>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletSpendingLimits {
+    pub max_per_call: Option<String>,
+    pub max_total: Option<String>,
+    pub currency: String,
+    pub total_spent: String,
+    pub set_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -368,42 +547,6 @@ pub struct Balance {
     pub raw: String, // U256 as string
 }
 
-// === Operation-Specific Request/Response Types ===
-
-/// Configuration for Circle paymaster (gasless transactions)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PaymasterConfig {
-    pub tba_address: Option<String>,
-    pub is_circle_paymaster: bool,
-    pub paymaster_address: String,
-    pub paymaster_verification_gas: String,
-    pub paymaster_post_op_gas: String,
-}
-
-impl Default for PaymasterConfig {
-    fn default() -> Self {
-        Self {
-            tba_address: None,
-            is_circle_paymaster: true,
-            paymaster_address: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec".to_string(), // Base Circle paymaster
-            paymaster_verification_gas: "0x7a120".to_string(),                           // 500000
-            paymaster_post_op_gas: "0x493e0".to_string(),                                // 300000
-        }
-    }
-}
-
-/// Request for building and signing a UserOperation for payment
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BuildAndSignUserOperationForPaymentRequest {
-    pub target: String,
-    pub call_data: String,
-    pub value: Option<String>,
-    pub use_paymaster: bool,
-    pub paymaster_config: Option<PaymasterConfig>,
-    pub password: Option<String>,
-}
-
-/// Response from building and signing a UserOperation
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BuildAndSignUserOperationResponse {
     pub signed_user_operation: serde_json::Value,
@@ -412,102 +555,21 @@ pub struct BuildAndSignUserOperationResponse {
     pub ready_to_submit: bool,
 }
 
-/// Request for submitting a UserOperation
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SubmitUserOperationRequest {
-    pub signed_user_operation: serde_json::Value,
-    pub entry_point: String,
-    pub bundler_url: Option<String>,
-}
-
-/// Response from submitting a UserOperation
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SubmitUserOperationResponse {
     pub user_op_hash: String,
 }
 
-/// Request for getting UserOperation receipt
 #[derive(Debug, Serialize, Deserialize)]
-pub struct GetUserOperationReceiptRequest {
-    pub user_op_hash: String,
-}
-
-/// Request for creating a wallet
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CreateWalletRequest {
-    pub name: String,
-    pub password: Option<String>,
-}
-
-/// Request for unlocking a wallet
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UnlockWalletRequest {
-    pub session_id: String,
-    pub wallet_id: String,
-    pub password: String,
-}
-
-/// Request for importing a wallet
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ImportWalletRequest {
-    pub name: String,
+pub struct ExportWalletResponse {
+    pub address: String,
     pub private_key: String,
-    pub password: Option<String>,
+    pub chain_id: u64,
 }
 
-/// Request for renaming a wallet
 #[derive(Debug, Serialize, Deserialize)]
-pub struct RenameWalletRequest {
-    pub new_name: String,
-}
-
-/// Request for sending ETH
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SendEthRequest {
-    pub to: String,
-    pub amount: String,
-}
-
-/// Request for sending tokens
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SendTokenRequest {
-    pub token_address: String,
-    pub to: String,
-    pub amount: String,
-}
-
-/// Request for approving tokens
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ApproveTokenRequest {
-    pub token_address: String,
-    pub spender: String,
-    pub amount: String,
-}
-
-/// Request for getting token balance
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GetTokenBalanceRequest {
-    pub token_address: String,
-}
-
-/// Request for executing via TBA
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ExecuteViaTbaRequest {
-    pub tba_address: String,
-    pub target: String,
-    pub call_data: String,
-    pub value: Option<String>,
-}
-
-/// Request for checking TBA ownership
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CheckTbaOwnershipRequest {
-    pub tba_address: String,
-    pub signer_address: String,
-}
-
-/// Request for resolving identity
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ResolveIdentityRequest {
-    pub entry_name: String,
+pub struct ListWalletsResponse {
+    pub process: String,
+    pub wallets: Vec<Wallet>,
+    pub total: usize,
 }

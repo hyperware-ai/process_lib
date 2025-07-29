@@ -7,72 +7,35 @@
 //! It contains a public `types` submodule that defines the entire protocol, which is
 //! also used by the Hyperwallet server process to ensure compatibility.
 
-pub mod api;
-pub mod types;
+use crate::{Address, Request};
+use thiserror::Error;
 
-pub use api::{
-    approve_token,
-    // Gasless Payment Operations
-    build_and_sign_gasless_payment,
-    // User Operation Building and Submission
-    build_and_sign_user_operation,
-    build_and_sign_user_operation_for_payment,
-    // TBA (Token Bound Account) Operations
-    check_tba_ownership,
-    // Miscellaneous
-    create_note,
-    create_tba_payment_calldata,
-    create_usdc_payment_calldata,
-
-    // Wallet Management
-    create_wallet,
-    delete_wallet,
-    execute_complete_gasless_payment,
-    execute_gasless_payment,
-    execute_via_tba,
-    extract_payment_tx_hash,
-
-    // Balance and Token Operations
-    get_balance,
-    get_payment_receipt,
-    get_token_balance,
-    get_user_operation_receipt,
-
-    get_wallet_info,
-
-    import_wallet,
-    list_wallets,
-    rename_wallet,
-    resolve_identity,
-    send_eth,
-    send_token,
-
-    set_wallet_limits,
-    submit_gasless_payment,
-    submit_user_operation,
-    unlock_wallet,
-    validate_gasless_payment_setup,
-};
+// Re-export the most important types for convenience.
 pub use types::{
-    // Request Types
     ApproveTokenRequest,
-    // Configuration and Data Types
+    // Response types
     Balance,
+    // Business logic types
     BuildAndSignUserOperationForPaymentRequest,
-    // Response Types
-    BuildAndSignUserOperationResponse,
     CheckTbaOwnershipRequest,
     CreateWalletRequest,
     ExecuteViaTbaRequest,
+    ExportWalletRequest,
+    ExportWalletResponse,
     GetTokenBalanceRequest,
     GetUserOperationReceiptRequest,
     HandshakeConfig,
+    HyperwalletMessage,
+    HyperwalletRequest,
+    HyperwalletResponse,
     ImportWalletRequest,
-    // Operation and Error Types
+    ListWalletsResponse,
     Operation,
     OperationCategory,
     OperationError,
+    // Convenience types
     PaymasterConfig,
+    ProcessAuth,
     ProcessPermissions,
     RenameWalletRequest,
     ResolveIdentityRequest,
@@ -81,17 +44,10 @@ pub use types::{
     SessionInfo,
     SpendingLimits,
     SubmitUserOperationRequest,
-    SubmitUserOperationResponse,
     TxReceipt,
-
     UnlockWalletRequest,
-
-    UserOperationHash,
     Wallet,
 };
-
-use crate::{Address, Request};
-use thiserror::Error;
 
 /// The process identifier for the system's Hyperwallet service.
 const HYPERWALLET_PROCESS: &str = "hyperwallet:hyperwallet:hallman.hypr";
@@ -114,6 +70,7 @@ pub enum HyperwalletClientError {
 }
 
 /// Performs the full handshake and registration protocol with the Hyperwallet service.
+/// The calling process must provide its own address (`our`).
 pub fn initialize(
     our: &Address,
     config: HandshakeConfig,
@@ -122,12 +79,26 @@ pub fn initialize(
         .client_name
         .unwrap_or_else(|| our.process().to_string());
 
+    // Step 1: Send ClientHello
     let hello_step = types::HandshakeStep::ClientHello {
         client_version: env!("CARGO_PKG_VERSION").to_string(),
         client_name,
     };
-    let welcome_response: types::OperationResponse = send_handshake_step(hello_step, our)?;
+    let hello_message = types::HyperwalletMessage::Handshake(types::HyperwalletRequest {
+        business_data: hello_step,
+        wallet_id: None,
+        chain_id: None,
+        auth: types::ProcessAuth {
+            process_address: our.to_string(),
+            signature: None,
+        },
+        request_id: None,
+        timestamp: current_timestamp(),
+    });
+    let welcome_response: types::HyperwalletResponse<serde_json::Value> =
+        send_message(hello_message, our)?;
 
+    // Step 2: Parse ServerWelcome and check compatibility
     let welcome_data = welcome_response.data.ok_or_else(|| {
         HyperwalletClientError::ServerError(types::OperationError::internal_error(
             "ServerWelcome response contained no data",
@@ -146,95 +117,80 @@ pub fn initialize(
         }
     }
 
+    // Step 3: Send Register
     let register_step = types::HandshakeStep::Register {
         required_operations: config.required_operations.into_iter().collect(),
         spending_limits: config.spending_limits,
     };
-    let complete_response = send_handshake_step(register_step, our)?;
+    let register_message = types::HyperwalletMessage::Handshake(types::HyperwalletRequest {
+        business_data: register_step,
+        wallet_id: None,
+        chain_id: None,
+        auth: types::ProcessAuth {
+            process_address: our.to_string(),
+            signature: None,
+        },
+        request_id: None,
+        timestamp: current_timestamp(),
+    });
+    let complete_response: types::HyperwalletResponse<serde_json::Value> =
+        send_message(register_message, our)?;
 
+    // Step 4: Parse Complete and return SessionInfo
     let complete_data = complete_response.data.ok_or_else(|| {
         HyperwalletClientError::ServerError(types::OperationError::internal_error(
             "Complete response contained no data",
         ))
     })?;
 
-    // Extract session info from the Complete response
-    let session_id = complete_data["session_id"]
-        .as_str()
-        .ok_or_else(|| {
-            HyperwalletClientError::ServerError(types::OperationError::internal_error(
-                "Missing session_id in Complete response",
-            ))
-        })?
-        .to_string();
-
-    let registered_permissions: ProcessPermissions =
-        serde_json::from_value(complete_data["registered_permissions"].clone())
-            .map_err(HyperwalletClientError::Deserialization)?;
-
-    // Get server version from the earlier welcome response
-    let server_version = welcome_data["server_version"]
-        .as_str()
-        .ok_or_else(|| {
-            HyperwalletClientError::ServerError(types::OperationError::internal_error(
-                "Missing server_version in ServerWelcome response",
-            ))
-        })?
-        .to_string();
-
-    Ok(SessionInfo {
-        server_version,
-        session_id,
-        registered_permissions,
-    })
+    serde_json::from_value(complete_data).map_err(HyperwalletClientError::Deserialization)
 }
 
-// Internal helper for the handshake steps.
-fn send_handshake_step(
-    step: types::HandshakeStep,
-    our: &Address,
-) -> Result<types::OperationResponse, HyperwalletClientError> {
-    let request = types::OperationRequest {
-        operation: Operation::Handshake,
-        params: serde_json::to_value(step).map_err(HyperwalletClientError::Serialization)?,
-        auth: types::ProcessAuth {
-            process_address: our.to_string(),
-            signature: None,
-        },
-        wallet_id: None,
-        chain_id: None,
-        request_id: None,
-        timestamp: 0,
-    };
-    execute_request(request, our)
-}
+// === INTERNAL HELPERS ===
 
-// The lowest-level helper that handles sending all requests.
-pub(crate) fn execute_request(
-    request: types::OperationRequest,
+/// Send a typed message to the hyperwallet service
+pub(crate) fn send_message<T>(
+    message: types::HyperwalletMessage,
     our: &Address,
-) -> Result<types::OperationResponse, HyperwalletClientError> {
+) -> Result<types::HyperwalletResponse<T>, HyperwalletClientError>
+where
+    T: for<'de> serde::Deserialize<'de>,
+{
     // Construct the full hyperwallet address using our node
     let process_id: crate::ProcessId = ("hyperwallet", "hyperwallet", "hallman.hypr").into();
-    let hyperwallet_address = Address::new(our.node(), process_id);
+    let hyperwallet_address = crate::Address::new(our.node(), process_id);
 
     let response = Request::new()
         .target(hyperwallet_address)
-        .body(serde_json::to_vec(&request).map_err(HyperwalletClientError::Serialization)?)
+        .body(serde_json::to_vec(&message).map_err(HyperwalletClientError::Serialization)?)
         .send_and_await_response(5) // 5s timeout
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?;
 
-    let op_response: types::OperationResponse =
+    let hyperwallet_response: types::HyperwalletResponse<T> =
         serde_json::from_slice(response.body()).map_err(HyperwalletClientError::Deserialization)?;
 
-    if !op_response.success {
+    if !hyperwallet_response.success {
         return Err(HyperwalletClientError::ServerError(
-            op_response.error.unwrap_or_else(|| {
+            hyperwallet_response.error.unwrap_or_else(|| {
                 types::OperationError::internal_error("Operation failed with no error details")
             }),
         ));
     }
 
-    Ok(op_response)
+    Ok(hyperwallet_response)
 }
+
+/// Get current timestamp
+fn current_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+/// Contains all the shared types for the Hyperwallet protocol.
+pub mod types;
+
+/// High-level API functions
+pub mod api;

@@ -1,482 +1,232 @@
-//! Public API wrappers for Hyperwallet operations.
+//! Public API wrappers for Hyperwallet operations using clean typed messaging.
+//!
+//! All functions take specific HyperwalletRequest<BusinessType> objects for perfect type safety.
+//! Users construct the exact request type needed and get compile-time verification.
 
 use super::types::{
     self, ApproveTokenRequest, Balance, BuildAndSignUserOperationForPaymentRequest,
-    CheckTbaOwnershipRequest, CreateWalletRequest, ExecuteViaTbaRequest, GetTokenBalanceRequest,
-    GetUserOperationReceiptRequest, ImportWalletRequest, Operation, PaymasterConfig,
-    RenameWalletRequest, ResolveIdentityRequest, SendEthRequest, SendTokenRequest, SessionInfo,
-    SpendingLimits, SubmitUserOperationRequest, TxReceipt, UnlockWalletRequest, Wallet,
+    CheckTbaOwnershipRequest, CreateWalletRequest, ExecuteViaTbaRequest, ExportWalletRequest,
+    ExportWalletResponse, GetTokenBalanceRequest, GetUserOperationReceiptRequest,
+    HyperwalletMessage, HyperwalletRequest, HyperwalletResponse, ImportWalletRequest,
+    ListWalletsResponse, PaymasterConfig, RenameWalletRequest, ResolveIdentityRequest,
+    SendEthRequest, SendTokenRequest, SpendingLimits, SubmitUserOperationRequest, TxReceipt,
+    UnlockWalletRequest, Wallet,
 };
-use super::{execute_request, HyperwalletClientError};
+use super::HyperwalletClientError;
 use crate::{wallet, Address};
 use alloy_primitives::{Address as EthAddress, U256};
 
 /// Creates a new wallet for the process.
 pub fn create_wallet(
     our: &Address,
-    session_info: &SessionInfo,
-    name: &str,
-    password: Option<&str>,
+    request: HyperwalletRequest<CreateWalletRequest>,
 ) -> Result<Wallet, HyperwalletClientError> {
-    let typed_request = CreateWalletRequest {
-        name: name.to_string(),
-        password: password.map(|s| s.to_string()),
-    };
-    let request = build_request(
-        our,
-        session_info,
-        Operation::CreateWallet,
-        serde_json::to_value(typed_request).map_err(HyperwalletClientError::Serialization)?,
-        None,
-        None,
-    );
-    let response = execute_request(request, our)?;
-    serde_json::from_value(response.data.unwrap_or_default())
-        .map_err(HyperwalletClientError::Deserialization)
+    let message = HyperwalletMessage::CreateWallet(request);
+    let response: HyperwalletResponse<Wallet> = super::send_message(message, our)?;
+    response.data.ok_or_else(|| {
+        HyperwalletClientError::ServerError(types::OperationError::internal_error(
+            "Missing wallet data in response",
+        ))
+    })
 }
 
 /// Sends ETH from a managed wallet.
 pub fn send_eth(
     our: &Address,
-    session_info: &SessionInfo,
-    wallet_id: &str,
-    to: &str,
-    amount: &str, // e.g., "0.1 ETH"
-    chain_id: Option<u64>,
+    request: HyperwalletRequest<SendEthRequest>,
 ) -> Result<TxReceipt, HyperwalletClientError> {
-    let typed_request = SendEthRequest {
-        to: to.to_string(),
-        amount: amount.to_string(),
-    };
-    let request = build_request(
-        our,
-        session_info,
-        Operation::SendEth,
-        serde_json::to_value(typed_request).map_err(HyperwalletClientError::Serialization)?,
-        Some(wallet_id.to_string()),
-        chain_id,
-    );
-    let response = execute_request(request, our)?;
-    serde_json::from_value(response.data.unwrap_or_default())
-        .map_err(HyperwalletClientError::Deserialization)
+    let message = HyperwalletMessage::SendEth(request);
+    let response: HyperwalletResponse<TxReceipt> = super::send_message(message, our)?;
+    response.data.ok_or_else(|| {
+        HyperwalletClientError::ServerError(types::OperationError::internal_error(
+            "Missing transaction receipt in response",
+        ))
+    })
 }
 
 /// Retrieves the native balance of a managed wallet.
 pub fn get_balance(
     our: &Address,
-    session_info: &SessionInfo,
-    wallet_id: &str,
-    chain_id: Option<u64>,
+    request: HyperwalletRequest<()>,
 ) -> Result<Balance, HyperwalletClientError> {
-    let request = build_request(
-        our,
-        session_info,
-        Operation::GetBalance,
-        serde_json::Value::Null,
-        Some(wallet_id.to_string()),
-        chain_id,
-    );
-    let response = execute_request(request, our)?;
-    serde_json::from_value(response.data.unwrap_or_default())
-        .map_err(HyperwalletClientError::Deserialization)
+    let message = HyperwalletMessage::GetBalance(request);
+    let response: HyperwalletResponse<Balance> = super::send_message(message, our)?;
+    response.data.ok_or_else(|| {
+        HyperwalletClientError::ServerError(types::OperationError::internal_error(
+            "Missing balance data in response",
+        ))
+    })
 }
 
 /// Creates a note in the hypermap.
 pub fn create_note(
     our: &Address,
-    session_info: &SessionInfo,
-    note_data: serde_json::Value,
-    chain_id: Option<u64>,
+    request: HyperwalletRequest<serde_json::Value>,
 ) -> Result<serde_json::Value, HyperwalletClientError> {
-    let request = build_request(
-        our,
-        session_info,
-        Operation::CreateNote,
-        note_data,
-        None,
-        chain_id,
-    );
-    let response = execute_request(request, our)?;
+    let message = HyperwalletMessage::CreateNote(request);
+    let response: HyperwalletResponse<serde_json::Value> = super::send_message(message, our)?;
     Ok(response.data.unwrap_or_default())
 }
 
 /// Executes a transaction via Token Bound Account (TBA).
 pub fn execute_via_tba(
     our: &Address,
-    session_info: &SessionInfo,
-    tba_address: &str,
-    target: &str,
-    call_data: &[u8],
-    value: Option<&str>,
-    chain_id: Option<u64>,
+    request: HyperwalletRequest<ExecuteViaTbaRequest>,
 ) -> Result<serde_json::Value, HyperwalletClientError> {
-    let params = serde_json::json!({
-        "tba_address": tba_address,
-        "target": target,
-        "call_data": format!("0x{}", hex::encode(call_data)),
-        "value": value,
-    });
-    let request = build_request(
-        our,
-        session_info,
-        Operation::ExecuteViaTba,
-        params,
-        None,
-        chain_id,
-    );
-    let response = execute_request(request, our)?;
+    let message = HyperwalletMessage::ExecuteViaTba(request);
+    let response: HyperwalletResponse<serde_json::Value> = super::send_message(message, our)?;
     Ok(response.data.unwrap_or_default())
 }
 
 /// Checks TBA ownership.
 pub fn check_tba_ownership(
     our: &Address,
-    session_info: &SessionInfo,
-    tba_address: &str,
-    signer_address: &str,
-    chain_id: Option<u64>,
+    request: HyperwalletRequest<CheckTbaOwnershipRequest>,
 ) -> Result<serde_json::Value, HyperwalletClientError> {
-    let params = serde_json::json!({
-        "tba_address": tba_address,
-        "signer_address": signer_address,
-    });
-    let request = build_request(
-        our,
-        session_info,
-        Operation::CheckTbaOwnership,
-        params,
-        None,
-        chain_id,
-    );
-    let response = execute_request(request, our)?;
+    let message = HyperwalletMessage::CheckTbaOwnership(request);
+    let response: HyperwalletResponse<serde_json::Value> = super::send_message(message, our)?;
     Ok(response.data.unwrap_or_default())
 }
 
 /// Unlocks a wallet with the provided password.
 pub fn unlock_wallet(
     our: &Address,
-    session_info: &SessionInfo,
-    wallet_id: &str,
-    password: &str,
+    request: HyperwalletRequest<UnlockWalletRequest>,
 ) -> Result<(), HyperwalletClientError> {
-    let typed_request = UnlockWalletRequest {
-        session_id: session_info.session_id.clone(),
-        wallet_id: wallet_id.to_string(),
-        password: password.to_string(),
-    };
-    let request = build_request(
-        our,
-        session_info,
-        Operation::UnlockWallet,
-        serde_json::to_value(typed_request).map_err(HyperwalletClientError::Serialization)?,
-        None, // Don't duplicate wallet_id in request.wallet_id
-        None,
-    );
-    execute_request(request, our)?;
+    let message = HyperwalletMessage::UnlockWallet(request);
+    let _response: HyperwalletResponse<()> = super::send_message(message, our)?;
     Ok(())
 }
 
 /// Imports a wallet from a private key.
 pub fn import_wallet(
     our: &Address,
-    session_info: &SessionInfo,
-    name: &str,
-    private_key: &str,
-    password: Option<&str>,
+    request: HyperwalletRequest<ImportWalletRequest>,
 ) -> Result<Wallet, HyperwalletClientError> {
-    let params = serde_json::json!({
-        "name": name,
-        "private_key": private_key,
-        "password": password,
-    });
-    let request = build_request(
-        our,
-        session_info,
-        Operation::ImportWallet,
-        params,
-        None,
-        None,
-    );
-    let response = execute_request(request, our)?;
-    serde_json::from_value(response.data.unwrap_or_default())
-        .map_err(HyperwalletClientError::Deserialization)
+    let message = HyperwalletMessage::ImportWallet(request);
+    let response: HyperwalletResponse<Wallet> = super::send_message(message, our)?;
+    response.data.ok_or_else(|| {
+        HyperwalletClientError::ServerError(types::OperationError::internal_error(
+            "Missing wallet data in response",
+        ))
+    })
 }
 
 /// Lists all wallets accessible to the process.
 pub fn list_wallets(
     our: &Address,
-    session_info: &SessionInfo,
+    request: HyperwalletRequest<()>,
 ) -> Result<Vec<Wallet>, HyperwalletClientError> {
-    let request = build_request(
-        our,
-        session_info,
-        Operation::ListWallets,
-        serde_json::Value::Null,
-        None,
-        None,
-    );
-    let response = execute_request(request, our)?;
-    serde_json::from_value(response.data.unwrap_or_default())
-        .map_err(HyperwalletClientError::Deserialization)
+    let message = HyperwalletMessage::ListWallets(request);
+    let response: HyperwalletResponse<ListWalletsResponse> = super::send_message(message, our)?;
+    let list_response = response.data.ok_or_else(|| {
+        HyperwalletClientError::ServerError(types::OperationError::internal_error(
+            "Missing wallet list in response",
+        ))
+    })?;
+
+    Ok(list_response.wallets)
 }
 
 /// Gets detailed information about a specific wallet.
 pub fn get_wallet_info(
     our: &Address,
-    session_info: &SessionInfo,
-    wallet_id: &str,
+    request: HyperwalletRequest<()>,
 ) -> Result<Wallet, HyperwalletClientError> {
-    let request = build_request(
-        our,
-        session_info,
-        Operation::GetWalletInfo,
-        serde_json::Value::Null,
-        Some(wallet_id.to_string()),
-        None,
-    );
-    let response = execute_request(request, our)?;
-    serde_json::from_value(response.data.unwrap_or_default())
-        .map_err(HyperwalletClientError::Deserialization)
+    let message = HyperwalletMessage::GetWalletInfo(request);
+    let response: HyperwalletResponse<Wallet> = super::send_message(message, our)?;
+    response.data.ok_or_else(|| {
+        HyperwalletClientError::ServerError(types::OperationError::internal_error(
+            "Missing wallet data in response",
+        ))
+    })
 }
 
 /// Deletes a wallet permanently.
 pub fn delete_wallet(
     our: &Address,
-    session_info: &SessionInfo,
-    wallet_id: &str,
+    request: HyperwalletRequest<()>,
 ) -> Result<(), HyperwalletClientError> {
-    let request = build_request(
-        our,
-        session_info,
-        Operation::DeleteWallet,
-        serde_json::Value::Null,
-        Some(wallet_id.to_string()),
-        None,
-    );
-    execute_request(request, our)?;
+    let message = HyperwalletMessage::DeleteWallet(request);
+    let _response: HyperwalletResponse<()> = super::send_message(message, our)?;
     Ok(())
 }
 
 /// Renames a wallet.
 pub fn rename_wallet(
     our: &Address,
-    session_info: &SessionInfo,
-    wallet_id: &str,
-    new_name: &str,
+    request: HyperwalletRequest<RenameWalletRequest>,
 ) -> Result<(), HyperwalletClientError> {
-    let params = serde_json::json!({ "new_name": new_name });
-    let request = build_request(
-        our,
-        session_info,
-        Operation::RenameWallet,
-        params,
-        Some(wallet_id.to_string()),
-        None,
-    );
-    execute_request(request, our)?;
+    let message = HyperwalletMessage::RenameWallet(request);
+    let _response: HyperwalletResponse<()> = super::send_message(message, our)?;
     Ok(())
 }
 
 /// Sets spending limits for a wallet.
 pub fn set_wallet_limits(
     our: &Address,
-    session_info: &SessionInfo,
-    wallet_id: &str,
-    limits: SpendingLimits,
+    request: HyperwalletRequest<SpendingLimits>,
 ) -> Result<(), HyperwalletClientError> {
-    let params = serde_json::to_value(limits).map_err(HyperwalletClientError::Serialization)?;
-    let request = build_request(
-        our,
-        session_info,
-        Operation::SetWalletLimits,
-        params,
-        Some(wallet_id.to_string()),
-        None,
-    );
-    execute_request(request, our)?;
+    let message = HyperwalletMessage::SetWalletLimits(request);
+    let _response: HyperwalletResponse<()> = super::send_message(message, our)?;
     Ok(())
 }
 
 /// Sends tokens from a managed wallet.
 pub fn send_token(
     our: &Address,
-    session_info: &SessionInfo,
-    wallet_id: &str,
-    token_address: &str,
-    to: &str,
-    amount: &str,
-    chain_id: Option<u64>,
+    request: HyperwalletRequest<SendTokenRequest>,
 ) -> Result<TxReceipt, HyperwalletClientError> {
-    let params = serde_json::json!({
-        "token_address": token_address,
-        "to": to,
-        "amount": amount,
-    });
-    let request = build_request(
-        our,
-        session_info,
-        Operation::SendToken,
-        params,
-        Some(wallet_id.to_string()),
-        chain_id,
-    );
-    let response = execute_request(request, our)?;
-    serde_json::from_value(response.data.unwrap_or_default())
-        .map_err(HyperwalletClientError::Deserialization)
+    let message = HyperwalletMessage::SendToken(request);
+    let response: HyperwalletResponse<TxReceipt> = super::send_message(message, our)?;
+    response.data.ok_or_else(|| {
+        HyperwalletClientError::ServerError(types::OperationError::internal_error(
+            "Missing transaction receipt in response",
+        ))
+    })
 }
 
 /// Approves a spender to transfer tokens from a managed wallet.
 pub fn approve_token(
     our: &Address,
-    session_info: &SessionInfo,
-    wallet_id: &str,
-    token_address: &str,
-    spender: &str,
-    amount: &str,
-    chain_id: Option<u64>,
+    request: HyperwalletRequest<ApproveTokenRequest>,
 ) -> Result<TxReceipt, HyperwalletClientError> {
-    let params = serde_json::json!({
-        "token_address": token_address,
-        "spender": spender,
-        "amount": amount,
-    });
-    let request = build_request(
-        our,
-        session_info,
-        Operation::ApproveToken,
-        params,
-        Some(wallet_id.to_string()),
-        chain_id,
-    );
-    let response = execute_request(request, our)?;
-    serde_json::from_value(response.data.unwrap_or_default())
-        .map_err(HyperwalletClientError::Deserialization)
+    let message = HyperwalletMessage::ApproveToken(request);
+    let response: HyperwalletResponse<TxReceipt> = super::send_message(message, our)?;
+    response.data.ok_or_else(|| {
+        HyperwalletClientError::ServerError(types::OperationError::internal_error(
+            "Missing transaction receipt in response",
+        ))
+    })
 }
 
 /// Gets the token balance for a wallet.
 pub fn get_token_balance(
     our: &Address,
-    session_info: &SessionInfo,
-    wallet_id: &str,
-    token_address: &str,
-    chain_id: Option<u64>,
+    request: HyperwalletRequest<GetTokenBalanceRequest>,
 ) -> Result<serde_json::Value, HyperwalletClientError> {
-    let params = serde_json::json!({ "token_address": token_address });
-    let request = build_request(
-        our,
-        session_info,
-        Operation::GetTokenBalance,
-        params,
-        Some(wallet_id.to_string()),
-        chain_id,
-    );
-    let response = execute_request(request, our)?;
-    Ok(response.data.unwrap_or_default())
-}
-
-/// Builds and signs a UserOperation for payment via ERC-4337.
-pub fn build_and_sign_user_operation_for_payment(
-    our: &Address,
-    session_info: &SessionInfo,
-    wallet_id: &str,
-    target: &str,
-    call_data: &str,
-    value: Option<&str>,
-    use_paymaster: bool,
-    paymaster_config: Option<PaymasterConfig>,
-    password: Option<&str>,
-    chain_id: Option<u64>,
-) -> Result<serde_json::Value, HyperwalletClientError> {
-    let typed_request = BuildAndSignUserOperationForPaymentRequest {
-        target: target.to_string(),
-        call_data: call_data.to_string(),
-        value: value.map(|s| s.to_string()),
-        use_paymaster,
-        paymaster_config,
-        password: password.map(|s| s.to_string()),
-    };
-
-    let request = build_request(
-        our,
-        session_info,
-        Operation::BuildAndSignUserOperationForPayment,
-        serde_json::to_value(typed_request).map_err(HyperwalletClientError::Serialization)?,
-        Some(wallet_id.to_string()),
-        chain_id,
-    );
-    let response = execute_request(request, our)?;
+    let message = HyperwalletMessage::GetTokenBalance(request);
+    let response: HyperwalletResponse<serde_json::Value> = super::send_message(message, our)?;
     Ok(response.data.unwrap_or_default())
 }
 
 /// High-level convenience function for building and signing UserOperations with TBA support.
-/// This mirrors your current build_and_sign_user_operation function.
 pub fn build_and_sign_user_operation(
     our: &Address,
-    session_info: &SessionInfo,
-    wallet_id: &str,
-    target: &str,
-    call_data: &str,
-    value: Option<&str>,
-    use_paymaster: bool,
-    tba_address: Option<&str>,
-    password: Option<&str>,
-    chain_id: Option<u64>,
+    request: HyperwalletRequest<BuildAndSignUserOperationForPaymentRequest>,
 ) -> Result<serde_json::Value, HyperwalletClientError> {
-    // Create paymaster configuration if using paymaster
-    let paymaster_config = if use_paymaster {
-        let mut config = PaymasterConfig::default();
-        config.tba_address = tba_address.map(|s| s.to_string());
-        Some(config)
-    } else {
-        None
-    };
-
-    let typed_request = BuildAndSignUserOperationForPaymentRequest {
-        target: target.to_string(),
-        call_data: call_data.to_string(),
-        value: value.map(|s| s.to_string()),
-        use_paymaster,
-        paymaster_config,
-        password: password.map(|s| s.to_string()),
-    };
-
-    let request = build_request(
-        our,
-        session_info,
-        Operation::BuildAndSignUserOperationForPayment,
-        serde_json::to_value(typed_request).map_err(HyperwalletClientError::Serialization)?,
-        Some(wallet_id.to_string()),
-        chain_id,
-    );
-    let response = execute_request(request, our)?;
+    let message = HyperwalletMessage::BuildAndSignUserOperationForPayment(request);
+    let response: HyperwalletResponse<serde_json::Value> = super::send_message(message, our)?;
     Ok(response.data.unwrap_or_default())
 }
 
 /// Submits a UserOperation to the network.
 pub fn submit_user_operation(
     our: &Address,
-    session_info: &SessionInfo,
-    signed_user_operation: serde_json::Value,
-    entry_point: &str,
-    bundler_url: Option<&str>,
-    chain_id: Option<u64>,
+    request: HyperwalletRequest<SubmitUserOperationRequest>,
 ) -> Result<String, HyperwalletClientError> {
-    let typed_request = SubmitUserOperationRequest {
-        signed_user_operation,
-        entry_point: entry_point.to_string(),
-        bundler_url: bundler_url.map(|s| s.to_string()),
-    };
-    let request = build_request(
-        our,
-        session_info,
-        Operation::SubmitUserOperation,
-        serde_json::to_value(typed_request).map_err(HyperwalletClientError::Serialization)?,
-        None,
-        chain_id,
-    );
-    let response = execute_request(request, our)?;
-
-    // Extract user_op_hash from response data
+    let message = HyperwalletMessage::SubmitUserOperation(request);
+    let response: HyperwalletResponse<serde_json::Value> = super::send_message(message, our)?;
     let data = response.data.unwrap_or_default();
     data.get("user_op_hash")
         .and_then(|h| h.as_str())
@@ -491,88 +241,38 @@ pub fn submit_user_operation(
 /// Gets the receipt for a UserOperation.
 pub fn get_user_operation_receipt(
     our: &Address,
-    session_info: &SessionInfo,
-    user_op_hash: &str,
-    chain_id: Option<u64>,
+    request: HyperwalletRequest<GetUserOperationReceiptRequest>,
 ) -> Result<serde_json::Value, HyperwalletClientError> {
-    let typed_request = GetUserOperationReceiptRequest {
-        user_op_hash: user_op_hash.to_string(),
-    };
-    let request = build_request(
-        our,
-        session_info,
-        Operation::GetUserOperationReceipt,
-        serde_json::to_value(typed_request).map_err(HyperwalletClientError::Serialization)?,
-        None,
-        chain_id,
-    );
-    let response = execute_request(request, our)?;
+    let message = HyperwalletMessage::GetUserOperationReceipt(request);
+    let response: HyperwalletResponse<serde_json::Value> = super::send_message(message, our)?;
     Ok(response.data.unwrap_or_default())
 }
 
-/// High-level convenience function that executes a complete payment flow.
-/// This function handles: session management, building UserOp, submitting, and waiting for receipt.
-pub fn execute_gasless_payment(
+/// Exports a wallet's private key.
+pub fn export_wallet(
     our: &Address,
-    wallet_id: &str,
-    target: &str,
-    call_data: &str,
-    value: Option<&str>,
-    tba_address: Option<&str>,
-    password: Option<&str>,
-    chain_id: Option<u64>,
-) -> Result<serde_json::Value, HyperwalletClientError> {
-    // Step 1: Initialize session if needed (you might want to cache this)
-    let session = super::initialize(our, super::HandshakeConfig::new())?;
-
-    // Step 2: Build and sign UserOperation
-    let signed_data = build_and_sign_user_operation(
-        our,
-        &session,
-        wallet_id,
-        target,
-        call_data,
-        value,
-        true, // Always use paymaster for gasless
-        tba_address,
-        password,
-        chain_id,
-    )?;
-
-    // Step 3: Extract signed UserOperation and entry point
-    let signed_user_op = signed_data
-        .get("signed_user_operation")
-        .ok_or_else(|| {
-            HyperwalletClientError::ServerError(super::types::OperationError::internal_error(
-                "Missing signed_user_operation in response",
-            ))
-        })?
-        .clone();
-
-    let entry_point = signed_data
-        .get("entry_point")
-        .and_then(|e| e.as_str())
-        .ok_or_else(|| {
-            HyperwalletClientError::ServerError(super::types::OperationError::internal_error(
-                "Missing entry_point in response",
-            ))
-        })?;
-
-    // Step 4: Submit UserOperation
-    let user_op_hash = submit_user_operation(
-        our,
-        &session,
-        signed_user_op,
-        entry_point,
-        None, // Use default bundler
-        chain_id,
-    )?;
-
-    // Step 5: Get receipt (you might want to add polling with timeout)
-    let receipt = get_user_operation_receipt(our, &session, &user_op_hash, chain_id)?;
-
-    Ok(receipt)
+    request: HyperwalletRequest<ExportWalletRequest>,
+) -> Result<ExportWalletResponse, HyperwalletClientError> {
+    let message = HyperwalletMessage::ExportWallet(request);
+    let response: HyperwalletResponse<ExportWalletResponse> = super::send_message(message, our)?;
+    response.data.ok_or_else(|| {
+        HyperwalletClientError::ServerError(types::OperationError::internal_error(
+            "Missing export data in response",
+        ))
+    })
 }
+
+/// Resolves an identity name to an address via Hypermap.
+pub fn resolve_identity(
+    our: &Address,
+    request: HyperwalletRequest<ResolveIdentityRequest>,
+) -> Result<serde_json::Value, HyperwalletClientError> {
+    let message = HyperwalletMessage::ResolveIdentity(request);
+    let response: HyperwalletResponse<serde_json::Value> = super::send_message(message, our)?;
+    Ok(response.data.unwrap_or_default())
+}
+
+// === HELPER FUNCTIONS ===
 
 /// Creates TBA execute calldata for an ERC20 transfer payment.
 /// This wraps the existing wallet.rs functions to make payments simpler.
@@ -613,44 +313,42 @@ pub fn create_tba_payment_calldata(
 }
 
 /// Simplified gasless payment function - abstracts away all complexity.
-/// This is what the operator should actually use.
 pub fn build_and_sign_gasless_payment(
     our: &Address,
-    session_info: &SessionInfo,
+    session_info: &super::types::SessionInfo,
     signer_wallet_id: &str,
     tba_address: &str,
     call_data: &str,
     chain_id: Option<u64>,
 ) -> Result<serde_json::Value, HyperwalletClientError> {
-    let params = serde_json::json!({
-        "target": tba_address,
-        "call_data": call_data,
-        "use_paymaster": true,  // Always gasless
-        "paymaster_config": {
-            "tba_address": tba_address,
-            "is_circle_paymaster": true,
-            "paymaster_address": "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
-            "paymaster_verification_gas": "0x7a120",
-            "paymaster_post_op_gas": "0x493e0"
-        }
-    });
+    let request = super::types::BuildAndSignUserOperationForPaymentRequest {
+        target: tba_address.to_string(),
+        call_data: call_data.to_string(),
+        value: Some("0".to_string()),
+        use_paymaster: true,
+        paymaster_config: Some(create_paymaster_config_with_tba(Some(tba_address))),
+        password: None,
+    };
 
-    let request = build_request(
-        our,
-        session_info,
-        Operation::BuildAndSignUserOperationForPayment,
-        params,
-        Some(signer_wallet_id.to_string()),
+    let hyperwallet_request = super::types::HyperwalletRequest {
+        business_data: request,
+        wallet_id: Some(signer_wallet_id.to_string()),
         chain_id,
-    );
-    let response = execute_request(request, our)?;
-    Ok(response.data.unwrap_or_default())
+        auth: super::types::ProcessAuth {
+            process_address: our.to_string(),
+            signature: None,
+        },
+        request_id: None,
+        timestamp: current_timestamp(),
+    };
+
+    build_and_sign_user_operation(our, hyperwallet_request)
 }
 
 /// Simplified submit that extracts entry point automatically from build response.
 pub fn submit_gasless_payment(
     our: &Address,
-    session_info: &SessionInfo,
+    session_info: &super::types::SessionInfo,
     signed_user_op_response: serde_json::Value,
     chain_id: Option<u64>,
 ) -> Result<String, HyperwalletClientError> {
@@ -673,25 +371,49 @@ pub fn submit_gasless_payment(
             ))
         })?;
 
-    // Submit using the extracted data
-    submit_user_operation(
-        our,
-        session_info,
-        signed_user_op,
-        entry_point,
-        None,
+    let request = super::types::SubmitUserOperationRequest {
+        signed_user_operation: signed_user_op,
+        entry_point: entry_point.to_string(),
+        bundler_url: None,
+    };
+
+    let hyperwallet_request = super::types::HyperwalletRequest {
+        business_data: request,
+        wallet_id: None,
         chain_id,
-    )
+        auth: super::types::ProcessAuth {
+            process_address: our.to_string(),
+            signature: None,
+        },
+        request_id: None,
+        timestamp: current_timestamp(),
+    };
+
+    submit_user_operation(our, hyperwallet_request)
 }
 
 /// Get receipt with proper transaction hash extraction.
 pub fn get_payment_receipt(
     our: &Address,
-    session_info: &SessionInfo,
+    session_info: &super::types::SessionInfo,
     user_op_hash: &str,
     chain_id: Option<u64>,
 ) -> Result<(String, serde_json::Value), HyperwalletClientError> {
-    let receipt = get_user_operation_receipt(our, session_info, user_op_hash, chain_id)?;
+    let request = super::types::GetUserOperationReceiptRequest {
+        user_op_hash: user_op_hash.to_string(),
+    };
+    let hyperwallet_request = super::types::HyperwalletRequest {
+        business_data: request,
+        wallet_id: None,
+        chain_id,
+        auth: super::types::ProcessAuth {
+            process_address: our.to_string(),
+            signature: None,
+        },
+        request_id: None,
+        timestamp: current_timestamp(),
+    };
+    let receipt = get_user_operation_receipt(our, hyperwallet_request)?;
 
     // Extract transaction hash if available
     let tx_hash = receipt
@@ -704,31 +426,10 @@ pub fn get_payment_receipt(
     Ok((tx_hash, receipt))
 }
 
-/// Resolves an identity name to an address via Hypermap.
-pub fn resolve_identity(
-    our: &Address,
-    session_info: &SessionInfo,
-    entry_name: &str,
-    chain_id: Option<u64>,
-) -> Result<serde_json::Value, HyperwalletClientError> {
-    let params = serde_json::json!({ "entry_name": entry_name });
-    let request = build_request(
-        our,
-        session_info,
-        Operation::ResolveIdentity,
-        params,
-        None,
-        chain_id,
-    );
-    let response = execute_request(request, our)?;
-    Ok(response.data.unwrap_or_default())
-}
-
 /// Complete payment function that handles everything internally.
-/// The operator just needs to call this one function.
 pub fn execute_complete_gasless_payment(
     our: &Address,
-    session_info: &SessionInfo,
+    session_info: &super::types::SessionInfo,
     signer_wallet_id: &str,
     tba_address: &str,
     recipient_address: &str,
@@ -738,7 +439,6 @@ pub fn execute_complete_gasless_payment(
     // Step 1: Get USDC contract for the chain
     let usdc_contract = match chain_id {
         8453 => "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Base USDC
-        1 => "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",    // Mainnet USDC
         _ => {
             return Err(HyperwalletClientError::ServerError(
                 super::types::OperationError::invalid_params(&format!(
@@ -776,7 +476,6 @@ pub fn execute_complete_gasless_payment(
 }
 
 /// Validates payment setup and returns the required addresses and amounts.
-/// This replaces the manual validation logic in the operator.
 pub fn validate_gasless_payment_setup(
     tba_address: Option<&String>,
     recipient_address: &str,
@@ -786,7 +485,6 @@ pub fn validate_gasless_payment_setup(
     // Get USDC contract address for the chain
     let usdc_contract = match chain_id {
         8453 => "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Base USDC
-        1 => "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",    // Mainnet USDC
         _ => {
             return Err(HyperwalletClientError::ServerError(
                 super::types::OperationError::invalid_params(&format!(
@@ -797,12 +495,12 @@ pub fn validate_gasless_payment_setup(
         }
     };
 
-    // Check if operator TBA is configured
-    let operator_tba = match tba_address {
+    // Check if TBA is configured
+    let tba = match tba_address {
         Some(addr) => addr.clone(),
         None => {
             return Err(HyperwalletClientError::ServerError(
-                super::types::OperationError::invalid_params("Operator TBA not configured"),
+                super::types::OperationError::invalid_params("TBA not configured"),
             ))
         }
     };
@@ -829,24 +527,13 @@ pub fn validate_gasless_payment_setup(
 
     Ok((
         usdc_contract.to_string(),
-        operator_tba,
+        tba,
         recipient_address.to_string(),
         amount_usdc,
     ))
 }
 
-/// Creates TBA execute calldata for a USDC payment.
-/// This replaces the manual calldata creation logic in the operator.
-pub fn create_usdc_payment_calldata(
-    usdc_contract: &str,
-    recipient_address: &str,
-    amount_usdc: u128,
-) -> Result<String, HyperwalletClientError> {
-    create_tba_payment_calldata(usdc_contract, recipient_address, amount_usdc)
-}
-
 /// Extracts transaction hash from a payment receipt, with fallback logic.
-/// This replaces the manual receipt parsing in the operator.
 pub fn extract_payment_tx_hash(
     receipt_result: Result<(String, serde_json::Value), HyperwalletClientError>,
     user_op_hash_fallback: &str,
@@ -860,28 +547,21 @@ pub fn extract_payment_tx_hash(
     }
 }
 
-// Internal helper to reduce boilerplate in the API functions.
-fn build_request(
-    our: &Address,
-    _session_info: &SessionInfo,
-    operation: Operation,
-    params: serde_json::Value,
-    wallet_id: Option<String>,
-    chain_id: Option<u64>,
-) -> types::OperationRequest {
-    types::OperationRequest {
-        operation,
-        params,
-        wallet_id,
-        chain_id,
-        auth: types::ProcessAuth {
-            process_address: our.to_string(),
-            signature: None, // Session ID could be sent here
-        },
-        request_id: None,
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
-    }
+/// Helper function to create a PaymasterConfig with TBA address for gasless transactions.
+pub fn create_paymaster_config_with_tba(tba_address: Option<&str>) -> PaymasterConfig {
+    let mut config = PaymasterConfig::default();
+    config.tba_address = tba_address.map(|s| s.to_string());
+    config
+}
+
+// === INTERNAL HELPERS ===
+
+// Uses the shared send_message function from the parent module
+
+/// Get current timestamp for message construction.
+pub fn current_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }
