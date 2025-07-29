@@ -598,7 +598,8 @@ pub fn create_tba_payment_calldata(
     let amount_units = amount_usdc * 1_000_000;
 
     // Create ERC20 transfer calldata using wallet.rs
-    let erc20_calldata = wallet::create_erc20_transfer_calldata(recipient_addr, U256::from(amount_units));
+    let erc20_calldata =
+        wallet::create_erc20_transfer_calldata(recipient_addr, U256::from(amount_units));
 
     // Create TBA execute calldata using wallet.rs
     let tba_calldata = wallet::create_tba_userop_calldata(
@@ -722,7 +723,6 @@ pub fn resolve_identity(
     let response = execute_request(request, our)?;
     Ok(response.data.unwrap_or_default())
 }
-
 
 /// Complete payment function that handles everything internally.
 /// The operator just needs to call this one function.
