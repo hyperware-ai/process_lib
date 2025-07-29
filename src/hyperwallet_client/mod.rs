@@ -11,18 +11,84 @@ pub mod api;
 pub mod types;
 
 pub use api::{
-    approve_token, build_and_sign_gasless_payment, build_and_sign_user_operation,
-    build_and_sign_user_operation_for_payment, check_tba_ownership, create_note,
-    create_tba_payment_calldata, create_usdc_payment_calldata, create_wallet, delete_wallet,
-    execute_complete_gasless_payment, execute_gasless_payment, execute_via_tba,
-    extract_payment_tx_hash, get_balance, get_payment_receipt, get_token_balance,
-    get_user_operation_receipt, get_wallet_info, import_wallet, list_wallets, rename_wallet,
-    resolve_identity, send_eth, send_token, set_wallet_limits, submit_gasless_payment,
-    submit_user_operation, unlock_wallet, validate_gasless_payment_setup,
+    // Wallet Management
+    create_wallet,
+    import_wallet,
+    unlock_wallet,
+    delete_wallet,
+    rename_wallet,
+    set_wallet_limits,
+    list_wallets,
+    get_wallet_info,
+    
+    // Balance and Token Operations
+    get_balance,
+    get_token_balance,
+    approve_token,
+    send_eth,
+    send_token,
+    
+    // TBA (Token Bound Account) Operations
+    check_tba_ownership,
+    execute_via_tba,
+    create_tba_payment_calldata,
+    create_usdc_payment_calldata,
+    
+    // User Operation Building and Submission
+    build_and_sign_user_operation,
+    build_and_sign_user_operation_for_payment,
+    submit_user_operation,
+    get_user_operation_receipt,
+    
+    // Gasless Payment Operations
+    build_and_sign_gasless_payment,
+    submit_gasless_payment,
+    get_payment_receipt,
+    execute_gasless_payment,
+    execute_complete_gasless_payment,
+    validate_gasless_payment_setup,
+    extract_payment_tx_hash,
+    
+    // Miscellaneous
+    create_note,
+    resolve_identity,
 };
 pub use types::{
-    Balance, HandshakeConfig, Operation, OperationCategory, OperationError, ProcessPermissions,
-    SessionInfo, SpendingLimits, TxReceipt, UserOperationHash, Wallet,
+    // Request Types
+    ApproveTokenRequest,
+    CheckTbaOwnershipRequest,
+    CreateWalletRequest,
+    ExecuteViaTbaRequest,
+    GetTokenBalanceRequest,
+    GetUserOperationReceiptRequest,
+    ImportWalletRequest,
+    RenameWalletRequest,
+    ResolveIdentityRequest,
+    SendEthRequest,
+    SendTokenRequest,
+    SubmitUserOperationRequest,
+    UnlockWalletRequest,
+    
+    // Response Types
+    BuildAndSignUserOperationResponse,
+    SubmitUserOperationResponse,
+    TxReceipt,
+    
+    // Configuration and Data Types
+    Balance,
+    BuildAndSignUserOperationForPaymentRequest,
+    HandshakeConfig,
+    PaymasterConfig,
+    ProcessPermissions,
+    SessionInfo,
+    SpendingLimits,
+    UserOperationHash,
+    Wallet,
+    
+    // Operation and Error Types
+    Operation,
+    OperationCategory,
+    OperationError,
 };
 
 use crate::{Address, Request};

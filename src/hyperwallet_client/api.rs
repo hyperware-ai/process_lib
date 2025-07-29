@@ -1,6 +1,12 @@
 //! Public API wrappers for Hyperwallet operations.
 
-use super::types::{self, Balance, Operation, SessionInfo, SpendingLimits, TxReceipt, Wallet};
+use super::types::{
+    self, ApproveTokenRequest, Balance, BuildAndSignUserOperationForPaymentRequest,
+    CheckTbaOwnershipRequest, CreateWalletRequest, ExecuteViaTbaRequest, GetTokenBalanceRequest,
+    GetUserOperationReceiptRequest, ImportWalletRequest, Operation, PaymasterConfig,
+    RenameWalletRequest, ResolveIdentityRequest, SendEthRequest, SendTokenRequest, SessionInfo,
+    SpendingLimits, SubmitUserOperationRequest, TxReceipt, UnlockWalletRequest, Wallet,
+};
 use super::{execute_request, HyperwalletClientError};
 use crate::{wallet, Address};
 use alloy_primitives::{Address as EthAddress, U256};
@@ -12,12 +18,15 @@ pub fn create_wallet(
     name: &str,
     password: Option<&str>,
 ) -> Result<Wallet, HyperwalletClientError> {
-    let params = serde_json::json!({ "name": name, "password": password });
+    let typed_request = CreateWalletRequest {
+        name: name.to_string(),
+        password: password.map(|s| s.to_string()),
+    };
     let request = build_request(
         our,
         session_info,
         Operation::CreateWallet,
-        params,
+        serde_json::to_value(typed_request).map_err(HyperwalletClientError::Serialization)?,
         None,
         None,
     );
@@ -35,12 +44,15 @@ pub fn send_eth(
     amount: &str, // e.g., "0.1 ETH"
     chain_id: Option<u64>,
 ) -> Result<TxReceipt, HyperwalletClientError> {
-    let params = serde_json::json!({ "to": to, "amount": amount });
+    let typed_request = SendEthRequest {
+        to: to.to_string(),
+        amount: amount.to_string(),
+    };
     let request = build_request(
         our,
         session_info,
         Operation::SendEth,
-        params,
+        serde_json::to_value(typed_request).map_err(HyperwalletClientError::Serialization)?,
         Some(wallet_id.to_string()),
         chain_id,
     );
@@ -147,16 +159,16 @@ pub fn unlock_wallet(
     wallet_id: &str,
     password: &str,
 ) -> Result<(), HyperwalletClientError> {
-    let params = serde_json::json!({
-        "session_id": session_info.session_id,
-        "wallet_id": wallet_id,
-        "password": password
-    });
+    let typed_request = UnlockWalletRequest {
+        session_id: session_info.session_id.clone(),
+        wallet_id: wallet_id.to_string(),
+        password: password.to_string(),
+    };
     let request = build_request(
         our,
         session_info,
         Operation::UnlockWallet,
-        params,
+        serde_json::to_value(typed_request).map_err(HyperwalletClientError::Serialization)?,
         None, // Don't duplicate wallet_id in request.wallet_id
         None,
     );
@@ -371,34 +383,24 @@ pub fn build_and_sign_user_operation_for_payment(
     call_data: &str,
     value: Option<&str>,
     use_paymaster: bool,
-    metadata: Option<serde_json::Map<String, serde_json::Value>>,
+    paymaster_config: Option<PaymasterConfig>,
     password: Option<&str>,
     chain_id: Option<u64>,
 ) -> Result<serde_json::Value, HyperwalletClientError> {
-    let mut params = serde_json::json!({
-        "target": target,
-        "call_data": call_data,
-        "use_paymaster": use_paymaster,
-    });
-
-    if let Some(v) = value {
-        params["value"] = serde_json::Value::String(v.to_string());
-    }
-
-    if let Some(pwd) = password {
-        params["password"] = serde_json::Value::String(pwd.to_string());
-    }
-
-    // Pass metadata through to hyperwallet
-    if let Some(meta) = metadata {
-        params["metadata"] = serde_json::Value::Object(meta);
-    }
+    let typed_request = BuildAndSignUserOperationForPaymentRequest {
+        target: target.to_string(),
+        call_data: call_data.to_string(),
+        value: value.map(|s| s.to_string()),
+        use_paymaster,
+        paymaster_config,
+        password: password.map(|s| s.to_string()),
+    };
 
     let request = build_request(
         our,
         session_info,
         Operation::BuildAndSignUserOperationForPayment,
-        params,
+        serde_json::to_value(typed_request).map_err(HyperwalletClientError::Serialization)?,
         Some(wallet_id.to_string()),
         chain_id,
     );
@@ -420,53 +422,29 @@ pub fn build_and_sign_user_operation(
     password: Option<&str>,
     chain_id: Option<u64>,
 ) -> Result<serde_json::Value, HyperwalletClientError> {
-    let mut params = serde_json::json!({
-        "target": target,
-        "call_data": call_data,
-        "use_paymaster": use_paymaster,
-    });
+    // Create paymaster configuration if using paymaster
+    let paymaster_config = if use_paymaster {
+        let mut config = PaymasterConfig::default();
+        config.tba_address = tba_address.map(|s| s.to_string());
+        Some(config)
+    } else {
+        None
+    };
 
-    if let Some(v) = value {
-        params["value"] = serde_json::Value::String(v.to_string());
-    }
-
-    if let Some(pwd) = password {
-        params["password"] = serde_json::Value::String(pwd.to_string());
-    }
-
-    // Create metadata with Circle paymaster configuration if using paymaster
-    if use_paymaster {
-        let mut metadata = serde_json::Map::new();
-
-        // Always add Circle paymaster metadata for gasless transactions
-        // These constants should be defined somewhere accessible
-        metadata.insert(
-            "paymaster_address".to_string(),
-            serde_json::json!("0x2Ac3c1d3e24b45c6C310534Bc2Dd84B5ed576335"),
-        ); // Base Circle paymaster
-        metadata.insert("is_circle_paymaster".to_string(), serde_json::json!(true));
-        metadata.insert(
-            "paymaster_verification_gas".to_string(),
-            serde_json::json!("0x30000"),
-        ); // 196608
-        metadata.insert(
-            "paymaster_post_op_gas".to_string(),
-            serde_json::json!("0x20000"),
-        ); // 131072
-
-        // Add TBA address if provided - tells hyperwallet to use TBA as sender
-        if let Some(tba) = tba_address {
-            metadata.insert("tba_address".to_string(), serde_json::json!(tba));
-        }
-
-        params["metadata"] = serde_json::Value::Object(metadata);
-    }
+    let typed_request = BuildAndSignUserOperationForPaymentRequest {
+        target: target.to_string(),
+        call_data: call_data.to_string(),
+        value: value.map(|s| s.to_string()),
+        use_paymaster,
+        paymaster_config,
+        password: password.map(|s| s.to_string()),
+    };
 
     let request = build_request(
         our,
         session_info,
         Operation::BuildAndSignUserOperationForPayment,
-        params,
+        serde_json::to_value(typed_request).map_err(HyperwalletClientError::Serialization)?,
         Some(wallet_id.to_string()),
         chain_id,
     );
@@ -483,16 +461,16 @@ pub fn submit_user_operation(
     bundler_url: Option<&str>,
     chain_id: Option<u64>,
 ) -> Result<String, HyperwalletClientError> {
-    let params = serde_json::json!({
-        "signed_user_operation": signed_user_operation,
-        "entry_point": entry_point,
-        "bundler_url": bundler_url,
-    });
+    let typed_request = SubmitUserOperationRequest {
+        signed_user_operation,
+        entry_point: entry_point.to_string(),
+        bundler_url: bundler_url.map(|s| s.to_string()),
+    };
     let request = build_request(
         our,
         session_info,
         Operation::SubmitUserOperation,
-        params,
+        serde_json::to_value(typed_request).map_err(HyperwalletClientError::Serialization)?,
         None,
         chain_id,
     );
@@ -517,12 +495,14 @@ pub fn get_user_operation_receipt(
     user_op_hash: &str,
     chain_id: Option<u64>,
 ) -> Result<serde_json::Value, HyperwalletClientError> {
-    let params = serde_json::json!({ "user_op_hash": user_op_hash });
+    let typed_request = GetUserOperationReceiptRequest {
+        user_op_hash: user_op_hash.to_string(),
+    };
     let request = build_request(
         our,
         session_info,
         Operation::GetUserOperationReceipt,
-        params,
+        serde_json::to_value(typed_request).map_err(HyperwalletClientError::Serialization)?,
         None,
         chain_id,
     );
@@ -594,6 +574,43 @@ pub fn execute_gasless_payment(
     Ok(receipt)
 }
 
+/// Creates TBA execute calldata for an ERC20 transfer payment.
+/// This wraps the existing wallet.rs functions to make payments simpler.
+pub fn create_tba_payment_calldata(
+    usdc_contract: &str,
+    recipient_address: &str,
+    amount_usdc: u128,
+) -> Result<String, HyperwalletClientError> {
+    // Parse addresses
+    let usdc_addr = usdc_contract.parse::<EthAddress>().map_err(|_| {
+        HyperwalletClientError::ServerError(super::types::OperationError::invalid_params(
+            "Invalid USDC contract address",
+        ))
+    })?;
+
+    let recipient_addr = recipient_address.parse::<EthAddress>().map_err(|_| {
+        HyperwalletClientError::ServerError(super::types::OperationError::invalid_params(
+            "Invalid recipient address",
+        ))
+    })?;
+
+    // Convert USDC amount to units (6 decimals)
+    let amount_units = amount_usdc * 1_000_000;
+
+    // Create ERC20 transfer calldata using wallet.rs
+    let erc20_calldata = wallet::create_erc20_transfer_calldata(recipient_addr, U256::from(amount_units));
+
+    // Create TBA execute calldata using wallet.rs
+    let tba_calldata = wallet::create_tba_userop_calldata(
+        usdc_addr,      // target: USDC contract
+        U256::ZERO,     // value: 0 (no ETH transfer)
+        erc20_calldata, // data: ERC20 transfer calldata
+        0,              // operation: 0 = CALL
+    );
+
+    Ok(format!("0x{}", hex::encode(tba_calldata)))
+}
+
 /// Simplified gasless payment function - abstracts away all complexity.
 /// This is what the operator should actually use.
 pub fn build_and_sign_gasless_payment(
@@ -608,7 +625,7 @@ pub fn build_and_sign_gasless_payment(
         "target": tba_address,
         "call_data": call_data,
         "use_paymaster": true,  // Always gasless
-        "metadata": {
+        "paymaster_config": {
             "tba_address": tba_address,
             "is_circle_paymaster": true,
             "paymaster_address": "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
@@ -706,43 +723,6 @@ pub fn resolve_identity(
     Ok(response.data.unwrap_or_default())
 }
 
-/// Creates TBA execute calldata for an ERC20 transfer payment.
-/// This wraps the existing wallet.rs functions to make payments simpler.
-pub fn create_tba_payment_calldata(
-    usdc_contract: &str,
-    recipient_address: &str,
-    amount_usdc: u128,
-) -> Result<String, HyperwalletClientError> {
-    // Parse addresses
-    let usdc_addr = usdc_contract.parse::<EthAddress>().map_err(|_| {
-        HyperwalletClientError::ServerError(super::types::OperationError::invalid_params(
-            "Invalid USDC contract address",
-        ))
-    })?;
-
-    let recipient_addr = recipient_address.parse::<EthAddress>().map_err(|_| {
-        HyperwalletClientError::ServerError(super::types::OperationError::invalid_params(
-            "Invalid recipient address",
-        ))
-    })?;
-
-    // Convert USDC amount to units (6 decimals)
-    let amount_units = amount_usdc * 1_000_000;
-
-    // Create ERC20 transfer calldata using wallet.rs
-    let erc20_calldata =
-        wallet::create_erc20_transfer_calldata(recipient_addr, U256::from(amount_units));
-
-    // Create TBA execute calldata using wallet.rs
-    let tba_calldata = wallet::create_tba_userop_calldata(
-        usdc_addr,      // target: USDC contract
-        U256::ZERO,     // value: 0 (no ETH transfer)
-        erc20_calldata, // data: ERC20 transfer calldata
-        0,              // operation: 0 = CALL
-    );
-
-    Ok(format!("0x{}", hex::encode(tba_calldata)))
-}
 
 /// Complete payment function that handles everything internally.
 /// The operator just needs to call this one function.

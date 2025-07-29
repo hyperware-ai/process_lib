@@ -367,3 +367,147 @@ pub struct Balance {
     pub formatted: String,
     pub raw: String, // U256 as string
 }
+
+// === Operation-Specific Request/Response Types ===
+
+/// Configuration for Circle paymaster (gasless transactions)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaymasterConfig {
+    pub tba_address: Option<String>,
+    pub is_circle_paymaster: bool,
+    pub paymaster_address: String,
+    pub paymaster_verification_gas: String,
+    pub paymaster_post_op_gas: String,
+}
+
+impl Default for PaymasterConfig {
+    fn default() -> Self {
+        Self {
+            tba_address: None,
+            is_circle_paymaster: true,
+            paymaster_address: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec".to_string(), // Base Circle paymaster
+            paymaster_verification_gas: "0x7a120".to_string(), // 500000
+            paymaster_post_op_gas: "0x493e0".to_string(), // 300000
+        }
+    }
+}
+
+/// Request for building and signing a UserOperation for payment
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BuildAndSignUserOperationForPaymentRequest {
+    pub target: String,
+    pub call_data: String,
+    pub value: Option<String>,
+    pub use_paymaster: bool,
+    pub paymaster_config: Option<PaymasterConfig>,
+    pub password: Option<String>,
+}
+
+/// Response from building and signing a UserOperation
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BuildAndSignUserOperationResponse {
+    pub signed_user_operation: serde_json::Value,
+    pub entry_point: String,
+    pub chain_id: u64,
+    pub ready_to_submit: bool,
+}
+
+/// Request for submitting a UserOperation
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SubmitUserOperationRequest {
+    pub signed_user_operation: serde_json::Value,
+    pub entry_point: String,
+    pub bundler_url: Option<String>,
+}
+
+/// Response from submitting a UserOperation
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SubmitUserOperationResponse {
+    pub user_op_hash: String,
+}
+
+/// Request for getting UserOperation receipt
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetUserOperationReceiptRequest {
+    pub user_op_hash: String,
+}
+
+/// Request for creating a wallet
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateWalletRequest {
+    pub name: String,
+    pub password: Option<String>,
+}
+
+/// Request for unlocking a wallet
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UnlockWalletRequest {
+    pub session_id: String,
+    pub wallet_id: String,
+    pub password: String,
+}
+
+/// Request for importing a wallet
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImportWalletRequest {
+    pub name: String,
+    pub private_key: String,
+    pub password: Option<String>,
+}
+
+/// Request for renaming a wallet
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RenameWalletRequest {
+    pub new_name: String,
+}
+
+/// Request for sending ETH
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SendEthRequest {
+    pub to: String,
+    pub amount: String,
+}
+
+/// Request for sending tokens
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SendTokenRequest {
+    pub token_address: String,
+    pub to: String,
+    pub amount: String,
+}
+
+/// Request for approving tokens
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApproveTokenRequest {
+    pub token_address: String,
+    pub spender: String,
+    pub amount: String,
+}
+
+/// Request for getting token balance
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetTokenBalanceRequest {
+    pub token_address: String,
+}
+
+/// Request for executing via TBA
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExecuteViaTbaRequest {
+    pub tba_address: String,
+    pub target: String,
+    pub call_data: String,
+    pub value: Option<String>,
+}
+
+/// Request for checking TBA ownership
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CheckTbaOwnershipRequest {
+    pub tba_address: String,
+    pub signer_address: String,
+}
+
+/// Request for resolving identity
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResolveIdentityRequest {
+    pub entry_name: String,
+}
