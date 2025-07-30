@@ -266,10 +266,10 @@ pub fn get_token_balance(
 /// Build and sign a UserOperation for gasless payments.
 pub fn build_and_sign_user_operation_for_payment(
     session_id: &SessionId,
-    wallet_id: &str,
+    eoa_wallet_id: &str,
+    tba_address: &str,
     target: &str,
     call_data: &str,
-    value: Option<&str>,
     use_paymaster: bool,
     paymaster_config: Option<PaymasterConfig>,
     password: Option<&str>,
@@ -277,10 +277,10 @@ pub fn build_and_sign_user_operation_for_payment(
     let request = build_request(
         session_id,
         BuildAndSignUserOperationForPaymentRequest {
-            wallet_id: wallet_id.to_string(),
+            eoa_wallet_id: eoa_wallet_id.to_string(),
+            tba_address: tba_address.to_string(),
             target: target.to_string(),
             call_data: call_data.to_string(),
-            value: value.map(|s| s.to_string()),
             use_paymaster,
             paymaster_config,
             password: password.map(|s| s.to_string()),
@@ -356,25 +356,21 @@ pub fn execute_gasless_payment(
     recipient_address: &str,
     amount_usdc: u128,
 ) -> Result<String, HyperwalletClientError> {
-    // Step 1: Get USDC contract for the chain
     let usdc_contract = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
 
-    // Step 2: Create payment calldata
     let tba_calldata = create_tba_payment_calldata(usdc_contract, recipient_address, amount_usdc)?;
 
-    // Step 3: Build and sign gasless payment
     let build_response = build_and_sign_user_operation_for_payment(
         session_id,
         signer_wallet_id,
         tba_address,
+        tba_address,
         &tba_calldata,
-        Some("0"),
-        true, // use_paymaster
+        true,
         Some(create_paymaster_config_with_tba(Some(tba_address))),
         None, // password
     )?;
 
-    // Step 4: Submit payment - now using typed data access
     let user_op_hash = submit_user_operation(
         session_id,
         build_response.signed_user_operation,
@@ -382,7 +378,6 @@ pub fn execute_gasless_payment(
         None, // bundler_url
     )?;
 
-    // Step 5: Get receipt and extract transaction hash
     let receipt_response =
         get_user_operation_receipt(session_id, &user_op_hash).unwrap_or_else(|_| {
             UserOperationReceiptResponse {
@@ -392,7 +387,6 @@ pub fn execute_gasless_payment(
             }
         });
 
-    // Extract transaction hash from typed receipt
     let tx_hash = receipt_response
         .receipt
         .as_ref()

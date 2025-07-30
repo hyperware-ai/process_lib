@@ -472,12 +472,19 @@ impl Default for PaymasterConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildAndSignUserOperationForPaymentRequest {
-    pub wallet_id: String,
+    /// Identifier for the EOA that will sign the UserOperation
+    pub eoa_wallet_id: String,
+    /// The TBA address that acts as the sender
+    pub tba_address: String,
+    /// Target address for the call
     pub target: String,
+    /// Call data in hex string format
     pub call_data: String,
-    pub value: Option<String>,
+    /// Whether to use a paymaster
     pub use_paymaster: bool,
+    /// Optional paymaster configuration
     pub paymaster_config: Option<PaymasterConfig>,
+    /// Optional password for the wallet
     pub password: Option<String>,
 }
 
