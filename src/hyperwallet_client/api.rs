@@ -367,7 +367,7 @@ pub fn execute_gasless_payment(
         tba_address,
         &tba_calldata,
         true,
-        Some(create_paymaster_config_with_tba(Some(tba_address))),
+        Default::default(),
         None, // password
     )?;
 
@@ -435,13 +435,6 @@ pub fn create_tba_payment_calldata(
     );
 
     Ok(format!("0x{}", hex::encode(tba_calldata)))
-}
-
-/// Helper function to create a PaymasterConfig with TBA address for gasless transactions.
-pub fn create_paymaster_config_with_tba(tba_address: Option<&str>) -> PaymasterConfig {
-    let mut config = PaymasterConfig::default();
-    config.tba_address = tba_address.map(|s| s.to_string());
-    config
 }
 
 // === INTERNAL HELPERS ===

@@ -448,28 +448,6 @@ impl<T> HyperwalletResponse<T> {
     }
 }
 
-/// Configuration for Circle paymaster (gasless transactions)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PaymasterConfig {
-    pub tba_address: Option<String>,
-    pub is_circle_paymaster: bool,
-    pub paymaster_address: String,
-    pub paymaster_verification_gas: String,
-    pub paymaster_post_op_gas: String,
-}
-
-impl Default for PaymasterConfig {
-    fn default() -> Self {
-        Self {
-            tba_address: None,
-            is_circle_paymaster: true,
-            paymaster_address: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec".to_string(), // Base Circle paymaster
-            paymaster_verification_gas: "0x7a120".to_string(),                           // 500000
-            paymaster_post_op_gas: "0x493e0".to_string(),                                // 300000
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildAndSignUserOperationForPaymentRequest {
     /// Identifier for the EOA that will sign the UserOperation
@@ -486,6 +464,26 @@ pub struct BuildAndSignUserOperationForPaymentRequest {
     pub paymaster_config: Option<PaymasterConfig>,
     /// Optional password for the wallet
     pub password: Option<String>,
+}
+
+/// Configuration for Circle paymaster (gasless transactions)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaymasterConfig {
+    pub is_circle_paymaster: bool,
+    pub paymaster_address: String,
+    pub paymaster_verification_gas: String,
+    pub paymaster_post_op_gas: String,
+}
+
+impl Default for PaymasterConfig {
+    fn default() -> Self {
+        Self {
+            is_circle_paymaster: true,
+            paymaster_address: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec".to_string(), // Base Circle paymaster
+            paymaster_verification_gas: "0x7a120".to_string(),                           // 500000
+            paymaster_post_op_gas: "0x493e0".to_string(),                                // 300000
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -66,10 +66,10 @@ pub use types::{
 
 // Re-export all API functions for direct access
 pub use api::{
-    build_and_sign_user_operation_for_payment, create_paymaster_config_with_tba,
-    create_tba_payment_calldata, create_wallet, delete_wallet, execute_gasless_payment,
-    export_wallet, get_balance, get_token_balance, get_user_operation_receipt, get_wallet_info,
-    import_wallet, list_wallets, send_eth, send_token, submit_user_operation, unlock_wallet,
+    build_and_sign_user_operation_for_payment, create_tba_payment_calldata, create_wallet,
+    delete_wallet, execute_gasless_payment, export_wallet, get_balance, get_token_balance,
+    get_user_operation_receipt, get_wallet_info, import_wallet, list_wallets, send_eth, send_token,
+    submit_user_operation, unlock_wallet,
 };
 
 /// Errors that can occur when interacting with the Hyperwallet client.
