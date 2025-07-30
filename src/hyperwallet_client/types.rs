@@ -744,6 +744,81 @@ impl OperationError {
             details: None,
         }
     }
+
+    pub fn wallet_not_found(wallet_id: &str) -> Self {
+        Self {
+            code: ErrorCode::WalletNotFound,
+            message: format!("Wallet '{}' not found or not accessible", wallet_id),
+            details: None,
+        }
+    }
+
+    pub fn chain_not_allowed(chain_id: u64) -> Self {
+        Self {
+            code: ErrorCode::ChainNotAllowed,
+            message: format!("Chain ID {} is not allowed for this process", chain_id),
+            details: None,
+        }
+    }
+
+    pub fn blockchain_error(message: &str) -> Self {
+        Self {
+            code: ErrorCode::BlockchainError,
+            message: format!("Blockchain error: {}", message),
+            details: None,
+        }
+    }
+
+    pub fn insufficient_funds(details: &str) -> Self {
+        Self {
+            code: ErrorCode::InsufficientFunds,
+            message: format!("Insufficient funds: {}", details),
+            details: None,
+        }
+    }
+
+    pub fn spending_limit_exceeded(details: &str) -> Self {
+        Self {
+            code: ErrorCode::SpendingLimitExceeded,
+            message: format!("Spending limit exceeded: {}", details),
+            details: None,
+        }
+    }
+
+    pub fn authentication_failed(reason: &str) -> Self {
+        Self {
+            code: ErrorCode::AuthenticationFailed,
+            message: format!("Authentication failed: {}", reason),
+            details: None,
+        }
+    }
+
+    pub fn wallet_locked(wallet_id: &str) -> Self {
+        Self {
+            code: ErrorCode::WalletLocked,
+            message: format!(
+                "Wallet '{}' is locked. Unlock it first to perform operations",
+                wallet_id
+            ),
+            details: None,
+        }
+    }
+
+    pub fn operation_not_supported(operation: &str) -> Self {
+        Self {
+            code: ErrorCode::OperationNotSupported,
+            message: format!("Operation '{}' is not supported or not enabled", operation),
+            details: None,
+        }
+    }
+
+    pub fn permission_denied(message: &str) -> Self {
+        Self {
+            code: ErrorCode::PermissionDenied,
+            message: format!("Permission denied: {}", message),
+            details: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -786,6 +861,22 @@ pub struct ProcessPermissions {
     pub spending_limits: Option<SpendingLimits>,
     pub updatable_settings: Vec<UpdatableSetting>,
     pub registered_at: u64,
+}
+
+impl ProcessPermissions {
+    /// Create new ProcessPermissions for a process during handshake registration
+    pub fn new(process_address: String, required_operations: Vec<Operation>) -> Self {
+        Self {
+            process_address,
+            allowed_operations: required_operations.into_iter().collect(),
+            spending_limits: None,
+            updatable_settings: vec![],
+            registered_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        }
+    }
 }
 
 // API Result Structs
