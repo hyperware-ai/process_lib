@@ -185,22 +185,35 @@ impl Operation {
     }
 }
 
-/// A configuration object for the `initialize` handshake.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct HandshakeConfig {
     pub(crate) required_operations: HashSet<Operation>,
     pub(crate) spending_limits: Option<SpendingLimits>,
     pub(crate) client_name: Option<String>,
+    pub(crate) initial_chain_id: ChainId,
+}
+
+impl Default for HandshakeConfig {
+    fn default() -> Self {
+        Self {
+            required_operations: HashSet::new(),
+            spending_limits: None,
+            client_name: None,
+            initial_chain_id: 8453, // Default to Base mainnet
+        }
+    }
 }
 
 impl HandshakeConfig {
     pub fn new() -> Self {
         Default::default()
     }
+
     pub fn with_operations(mut self, operations: &[Operation]) -> Self {
         self.required_operations.extend(operations.iter().cloned());
         self
     }
+
     pub fn require_category(mut self, category: OperationCategory) -> Self {
         self.required_operations.extend(
             Operation::all()
@@ -209,12 +222,19 @@ impl HandshakeConfig {
         );
         self
     }
+
     pub fn with_spending_limits(mut self, limits: SpendingLimits) -> Self {
         self.spending_limits = Some(limits);
         self
     }
+
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.client_name = Some(name.into());
+        self
+    }
+
+    pub fn with_initial_chain(mut self, chain_id: ChainId) -> Self {
+        self.initial_chain_id = chain_id;
         self
     }
 }
@@ -224,6 +244,7 @@ pub struct SessionInfo {
     pub server_version: String,
     pub session_id: SessionId,
     pub registered_permissions: ProcessPermissions,
+    pub initial_chain_id: ChainId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -250,49 +271,140 @@ pub enum HandshakeStep {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProcessAuth {
-    pub process_address: String,
-    pub signature: Option<Vec<u8>>,
+pub struct HyperwalletRequest<T> {
+    pub operation: T,
+    pub session_id: SessionId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HyperwalletRequest<T> {
-    pub business_data: T,
-    pub wallet_id: Option<String>,
-    pub chain_id: Option<u64>,
-    pub auth: ProcessAuth,
-    pub request_id: Option<String>,
-    pub timestamp: u64,
+pub struct HandshakeRequest<T> {
+    pub operation: T,
 }
 
 /// Typed message enum for type-safe communication
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "operation")]
 pub enum HyperwalletMessage {
-    Handshake(HyperwalletRequest<HandshakeStep>),
+    // Session Management (Unauthenticated)
+    Handshake(HandshakeRequest<HandshakeStep>),
+
+    // Session Management (Authenticated)
+    UnlockWallet(HyperwalletRequest<UnlockWalletRequest>),
+
+    // Wallet Lifecycle Management
     CreateWallet(HyperwalletRequest<CreateWalletRequest>),
     ImportWallet(HyperwalletRequest<ImportWalletRequest>),
-    UnlockWallet(HyperwalletRequest<UnlockWalletRequest>),
-    DeleteWallet(HyperwalletRequest<()>),
+    DeleteWallet(HyperwalletRequest<DeleteWalletRequest>),
     RenameWallet(HyperwalletRequest<RenameWalletRequest>),
     ExportWallet(HyperwalletRequest<ExportWalletRequest>),
-    GetWalletInfo(HyperwalletRequest<()>),
-    ListWallets(HyperwalletRequest<()>),
-    SetWalletLimits(HyperwalletRequest<SpendingLimits>),
+    ListWallets(HyperwalletRequest<()>), // No parameters needed
+    GetWalletInfo(HyperwalletRequest<GetWalletInfoRequest>),
+
+    // Ethereum Operations
     SendEth(HyperwalletRequest<SendEthRequest>),
     SendToken(HyperwalletRequest<SendTokenRequest>),
     ApproveToken(HyperwalletRequest<ApproveTokenRequest>),
-    GetBalance(HyperwalletRequest<()>),
+    GetBalance(HyperwalletRequest<GetBalanceRequest>),
     GetTokenBalance(HyperwalletRequest<GetTokenBalanceRequest>),
+    CallContract(HyperwalletRequest<CallContractRequest>),
+    SignTransaction(HyperwalletRequest<SignTransactionRequest>),
+    SignMessage(HyperwalletRequest<SignMessageRequest>),
+    GetTransactionHistory(HyperwalletRequest<GetTransactionHistoryRequest>),
+    EstimateGas(HyperwalletRequest<EstimateGasRequest>),
+    GetGasPrice(HyperwalletRequest<()>), // No parameters needed
+    GetTransactionReceipt(HyperwalletRequest<GetTransactionReceiptRequest>),
+
+    // Token Bound Account Operations
     ExecuteViaTba(HyperwalletRequest<ExecuteViaTbaRequest>),
     CheckTbaOwnership(HyperwalletRequest<CheckTbaOwnershipRequest>),
+    SetupTbaDelegation(HyperwalletRequest<SetupTbaDelegationRequest>),
+
+    // Account Abstraction (ERC-4337)
     BuildAndSignUserOperationForPayment(
         HyperwalletRequest<BuildAndSignUserOperationForPaymentRequest>,
     ),
     SubmitUserOperation(HyperwalletRequest<SubmitUserOperationRequest>),
     GetUserOperationReceipt(HyperwalletRequest<GetUserOperationReceiptRequest>),
+    BuildUserOperation(HyperwalletRequest<BuildUserOperationRequest>),
+    SignUserOperation(HyperwalletRequest<SignUserOperationRequest>),
+    BuildAndSignUserOperation(HyperwalletRequest<BuildAndSignUserOperationRequest>),
+    EstimateUserOperationGas(HyperwalletRequest<EstimateUserOperationGasRequest>),
+    ConfigurePaymaster(HyperwalletRequest<ConfigurePaymasterRequest>),
+
+    // Hypermap Operations
     ResolveIdentity(HyperwalletRequest<ResolveIdentityRequest>),
-    CreateNote(HyperwalletRequest<serde_json::Value>), // Flexible for notes
+    CreateNote(HyperwalletRequest<CreateNoteRequest>),
+    ReadNote(HyperwalletRequest<ReadNoteRequest>),
+    SetupDelegation(HyperwalletRequest<SetupDelegationRequest>),
+    VerifyDelegation(HyperwalletRequest<VerifyDelegationRequest>),
+    MintEntry(HyperwalletRequest<MintEntryRequest>),
+
+    // Process Management (Legacy)
+    UpdateSpendingLimits(HyperwalletRequest<UpdateSpendingLimitsRequest>),
+}
+
+impl HyperwalletMessage {
+    /// Get the operation type for this message - used for permission checking and routing
+    pub fn operation_type(&self) -> Operation {
+        match self {
+            // Session Management
+            HyperwalletMessage::Handshake(_) => Operation::Handshake,
+            HyperwalletMessage::UnlockWallet(_) => Operation::UnlockWallet,
+
+            // Wallet Lifecycle Management
+            HyperwalletMessage::CreateWallet(_) => Operation::CreateWallet,
+            HyperwalletMessage::ImportWallet(_) => Operation::ImportWallet,
+            HyperwalletMessage::DeleteWallet(_) => Operation::DeleteWallet,
+            HyperwalletMessage::RenameWallet(_) => Operation::RenameWallet,
+            HyperwalletMessage::ExportWallet(_) => Operation::ExportWallet,
+            HyperwalletMessage::ListWallets(_) => Operation::ListWallets,
+            HyperwalletMessage::GetWalletInfo(_) => Operation::GetWalletInfo,
+
+            // Ethereum Operations
+            HyperwalletMessage::SendEth(_) => Operation::SendEth,
+            HyperwalletMessage::SendToken(_) => Operation::SendToken,
+            HyperwalletMessage::ApproveToken(_) => Operation::ApproveToken,
+            HyperwalletMessage::GetBalance(_) => Operation::GetBalance,
+            HyperwalletMessage::GetTokenBalance(_) => Operation::GetTokenBalance,
+            HyperwalletMessage::CallContract(_) => Operation::CallContract,
+            HyperwalletMessage::SignTransaction(_) => Operation::SignTransaction,
+            HyperwalletMessage::SignMessage(_) => Operation::SignMessage,
+            HyperwalletMessage::GetTransactionHistory(_) => Operation::GetTransactionHistory,
+            HyperwalletMessage::EstimateGas(_) => Operation::EstimateGas,
+            HyperwalletMessage::GetGasPrice(_) => Operation::GetGasPrice,
+            HyperwalletMessage::GetTransactionReceipt(_) => Operation::GetTransactionReceipt,
+
+            // Token Bound Account Operations
+            HyperwalletMessage::ExecuteViaTba(_) => Operation::ExecuteViaTba,
+            HyperwalletMessage::CheckTbaOwnership(_) => Operation::CheckTbaOwnership,
+            HyperwalletMessage::SetupTbaDelegation(_) => Operation::SetupTbaDelegation,
+
+            // Account Abstraction (ERC-4337)
+            HyperwalletMessage::BuildAndSignUserOperationForPayment(_) => {
+                Operation::BuildAndSignUserOperationForPayment
+            }
+            HyperwalletMessage::SubmitUserOperation(_) => Operation::SubmitUserOperation,
+            HyperwalletMessage::GetUserOperationReceipt(_) => Operation::GetUserOperationReceipt,
+            HyperwalletMessage::BuildUserOperation(_) => Operation::BuildUserOperation,
+            HyperwalletMessage::SignUserOperation(_) => Operation::SignUserOperation,
+            HyperwalletMessage::BuildAndSignUserOperation(_) => {
+                Operation::BuildAndSignUserOperation
+            }
+            HyperwalletMessage::EstimateUserOperationGas(_) => Operation::EstimateUserOperationGas,
+            HyperwalletMessage::ConfigurePaymaster(_) => Operation::ConfigurePaymaster,
+
+            // Hypermap Operations
+            HyperwalletMessage::ResolveIdentity(_) => Operation::ResolveIdentity,
+            HyperwalletMessage::CreateNote(_) => Operation::CreateNote,
+            HyperwalletMessage::ReadNote(_) => Operation::ReadNote,
+            HyperwalletMessage::SetupDelegation(_) => Operation::SetupDelegation,
+            HyperwalletMessage::VerifyDelegation(_) => Operation::VerifyDelegation,
+            HyperwalletMessage::MintEntry(_) => Operation::MintEntry,
+
+            // Process Management (Legacy)
+            HyperwalletMessage::UpdateSpendingLimits(_) => Operation::UpdateSpendingLimits,
+        }
+    }
 }
 
 /// Unified response type
@@ -302,7 +414,38 @@ pub struct HyperwalletResponse<T> {
     pub data: Option<T>,
     pub error: Option<OperationError>,
     pub request_id: Option<String>,
-    pub timestamp: u64,
+}
+
+impl<T> HyperwalletResponse<T> {
+    pub fn success(data: T) -> Self {
+        Self {
+            success: true,
+            data: Some(data),
+            error: None,
+            request_id: None,
+        }
+    }
+
+    pub fn error(error: OperationError) -> Self {
+        Self {
+            success: false,
+            data: None,
+            error: Some(error),
+            request_id: None,
+        }
+    }
+
+    pub fn map<U, F>(self, f: F) -> HyperwalletResponse<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        HyperwalletResponse {
+            success: self.success,
+            data: self.data.map(f),
+            error: self.error,
+            request_id: self.request_id,
+        }
+    }
 }
 
 /// Configuration for Circle paymaster (gasless transactions)
@@ -329,6 +472,7 @@ impl Default for PaymasterConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildAndSignUserOperationForPaymentRequest {
+    pub wallet_id: String,
     pub target: String,
     pub call_data: String,
     pub value: Option<String>,
@@ -364,17 +508,20 @@ pub struct RenameWalletRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportWalletRequest {
+    pub wallet_id: String,
     pub password: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendEthRequest {
+    pub wallet_id: String,
     pub to: String,
     pub amount: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendTokenRequest {
+    pub wallet_id: String,
     pub token_address: String,
     pub to: String,
     pub amount: String,
@@ -389,6 +536,7 @@ pub struct ApproveTokenRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetTokenBalanceRequest {
+    pub wallet_id: String,
     pub token_address: String,
 }
 
@@ -423,27 +571,155 @@ pub struct ResolveIdentityRequest {
     pub entry_name: String,
 }
 
-// === LEGACY COMPATIBILITY ===
+// === NEW PROPERLY TYPED REQUEST STRUCTS ===
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OperationRequest {
-    pub operation: Operation,
-    pub params: serde_json::Value,
-    pub wallet_id: Option<String>,
-    pub chain_id: Option<u64>,
-    pub auth: ProcessAuth,
-    pub request_id: Option<String>,
-    pub timestamp: u64,
+pub struct CallContractRequest {
+    pub to: String,
+    pub data: String,          // hex-encoded calldata
+    pub value: Option<String>, // wei amount as string
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OperationResponse {
-    pub success: bool,
-    pub data: Option<serde_json::Value>,
-    pub error: Option<OperationError>,
-    pub request_id: Option<String>,
-    pub timestamp: u64,
+pub struct SignTransactionRequest {
+    pub to: String,
+    pub value: String,        // wei amount as string
+    pub data: Option<String>, // hex-encoded data
+    pub gas_limit: Option<String>,
+    pub gas_price: Option<String>,
+    pub nonce: Option<u64>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignMessageRequest {
+    pub message: String,           // message to sign
+    pub message_type: MessageType, // EIP-191, EIP-712, etc.
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MessageType {
+    PlainText,
+    Eip191,
+    Eip712 {
+        domain: serde_json::Value,
+        types: serde_json::Value,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetTransactionHistoryRequest {
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+    pub from_block: Option<u64>,
+    pub to_block: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EstimateGasRequest {
+    pub to: String,
+    pub data: Option<String>,  // hex-encoded calldata
+    pub value: Option<String>, // wei amount as string
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetTransactionReceiptRequest {
+    pub tx_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetupTbaDelegationRequest {
+    pub tba_address: String,
+    pub delegate_address: String,
+    pub permissions: Vec<String>, // permission types
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildUserOperationRequest {
+    pub target: String,
+    pub call_data: String,
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignUserOperationRequest {
+    pub unsigned_user_operation: serde_json::Value, // UserOperation struct
+    pub entry_point: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildAndSignUserOperationRequest {
+    pub target: String,
+    pub call_data: String,
+    pub value: Option<String>,
+    pub entry_point: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EstimateUserOperationGasRequest {
+    pub user_operation: serde_json::Value, // UserOperation struct
+    pub entry_point: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigurePaymasterRequest {
+    pub paymaster_address: String,
+    pub paymaster_data: Option<String>, // hex-encoded data
+    pub verification_gas_limit: String,
+    pub post_op_gas_limit: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadNoteRequest {
+    pub note_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetupDelegationRequest {
+    pub delegate_address: String,
+    pub permissions: Vec<String>,
+    pub expiry: Option<u64>, // timestamp
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifyDelegationRequest {
+    pub delegate_address: String,
+    pub signature: String, // hex-encoded signature
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MintEntryRequest {
+    pub entry_name: String,
+    pub metadata: serde_json::Value, // entry metadata
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateSpendingLimitsRequest {
+    pub new_limits: SpendingLimits,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateNoteRequest {
+    pub note_data: serde_json::Value, // flexible note content
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteWalletRequest {
+    pub wallet_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetWalletInfoRequest {
+    pub wallet_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetBalanceRequest {
+    pub wallet_id: String,
+}
+
+// === ESSENTIAL TYPES (NOT LEGACY) ===
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperationError {
@@ -551,7 +827,6 @@ pub struct Balance {
 pub struct BuildAndSignUserOperationResponse {
     pub signed_user_operation: serde_json::Value,
     pub entry_point: String,
-    pub chain_id: u64,
     pub ready_to_submit: bool,
 }
 
@@ -564,7 +839,6 @@ pub struct SubmitUserOperationResponse {
 pub struct ExportWalletResponse {
     pub address: String,
     pub private_key: String,
-    pub chain_id: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -572,4 +846,84 @@ pub struct ListWalletsResponse {
     pub process: String,
     pub wallets: Vec<Wallet>,
     pub total: usize,
+}
+
+// === NEW RESPONSE STRUCTS FOR TYPE SAFETY ===
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetTokenBalanceResponse {
+    pub balance: String,
+    pub formatted: Option<String>,
+    pub decimals: Option<u8>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserOperationReceiptResponse {
+    pub receipt: Option<serde_json::Value>, // Transaction receipt if mined
+    pub user_op_hash: String,
+    pub status: String, // "pending", "included", "failed"
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CallContractResponse {
+    pub result: String, // hex-encoded result
+    pub gas_used: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SignTransactionResponse {
+    pub signed_transaction: String, // hex-encoded signed transaction
+    pub transaction_hash: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SignMessageResponse {
+    pub signature: String, // hex-encoded signature
+    pub message_hash: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EstimateGasResponse {
+    pub gas_estimate: String, // gas amount as string
+    pub gas_price: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetGasPriceResponse {
+    pub gas_price: String, // in wei as string
+    pub fast_gas_price: Option<String>,
+    pub standard_gas_price: Option<String>,
+    pub safe_gas_price: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TransactionHistoryResponse {
+    pub transactions: Vec<TransactionHistoryItem>,
+    pub total: usize,
+    pub page: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TransactionHistoryItem {
+    pub hash: String,
+    pub from: String,
+    pub to: String,
+    pub value: String,
+    pub gas_used: Option<String>,
+    pub timestamp: u64,
+    pub status: String, // "success", "failed", "pending"
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CheckTbaOwnershipResponse {
+    pub is_owner: bool,
+    pub tba_address: String,
+    pub owner_address: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResolveIdentityResponse {
+    pub address: Option<String>,
+    pub entry_name: String,
+    pub found: bool,
 }
