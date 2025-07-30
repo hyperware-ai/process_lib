@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-pub type ProcessAddress = String;
+pub type ProcessAddress = crate::Address;
 pub type WalletAddress = String;
 pub type ChainId = u64;
 pub type SessionId = String;
@@ -861,7 +861,7 @@ pub enum UpdatableSetting {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessPermissions {
-    pub process_address: ProcessAddress,
+    pub address: ProcessAddress,
     pub allowed_operations: HashSet<Operation>,
     pub spending_limits: Option<SpendingLimits>,
     pub updatable_settings: Vec<UpdatableSetting>,
@@ -870,9 +870,9 @@ pub struct ProcessPermissions {
 
 impl ProcessPermissions {
     /// Create new ProcessPermissions for a process during handshake registration
-    pub fn new(process_address: String, required_operations: Vec<Operation>) -> Self {
+    pub fn new(address: crate::Address, required_operations: Vec<Operation>) -> Self {
         Self {
-            process_address,
+            address,
             allowed_operations: required_operations.into_iter().collect(),
             spending_limits: None,
             updatable_settings: vec![],
