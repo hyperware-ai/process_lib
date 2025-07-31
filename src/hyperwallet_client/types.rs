@@ -886,7 +886,136 @@ impl ProcessPermissions {
 
 // API Result Structs
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HandshakeResponseData {
+    pub session_id: SessionId,
+    pub session_info: SessionInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnlockWalletResponse {
+    pub success: bool,
+    pub wallet_id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateWalletResponse {
+    pub wallet_id: String,
+    pub address: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportWalletResponse {
+    pub wallet_id: String,
+    pub address: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteWalletResponse {
+    pub success: bool,
+    pub wallet_id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetWalletInfoResponse {
+    pub wallet_id: String,
+    pub address: String,
+    pub name: String,
+    pub chain_id: ChainId,
+    pub is_locked: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetBalanceResponse {
+    pub balance: Balance,
+    pub wallet_id: String,
+    pub chain_id: ChainId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SendEthResponse {
+    pub tx_hash: String,
+    pub from_address: String,
+    pub to_address: String,
+    pub amount: String,
+    pub chain_id: ChainId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SendTokenResponse {
+    pub tx_hash: String,
+    pub from_address: String,
+    pub to_address: String,
+    pub token_address: String,
+    pub amount: String,
+    pub chain_id: ChainId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateNoteResponse {
+    pub note_id: String,
+    pub content_hash: String,
+    pub created_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteViaTbaResponse {
+    pub tx_hash: String,
+    pub tba_address: String,
+    pub target_address: String,
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckTbaOwnershipResponse {
+    pub tba_address: String,
+    pub owner_address: String,
+    pub is_owned: bool,
+}
+
+/// Unified response type that preserves type safety for all hyperwallet operations
+/// This replaces serde_json::Value in the message dispatcher
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "operation_type")]
+pub enum HyperwalletResponseData {
+    // Session Management
+    Handshake(HandshakeResponseData),
+    UnlockWallet(UnlockWalletResponse),
+
+    // Wallet Lifecycle
+    CreateWallet(CreateWalletResponse),
+    ImportWallet(ImportWalletResponse),
+    DeleteWallet(DeleteWalletResponse),
+    ExportWallet(ExportWalletResponse),
+
+    // Wallet Queries
+    ListWallets(ListWalletsResponse),
+    GetWalletInfo(GetWalletInfoResponse),
+    GetBalance(GetBalanceResponse),
+    GetTokenBalance(GetTokenBalanceResponse),
+
+    // Transactions
+    SendEth(SendEthResponse),
+    SendToken(SendTokenResponse),
+
+    // ERC4337 Account Abstraction
+    BuildAndSignUserOperationForPayment(BuildAndSignUserOperationResponse),
+    SubmitUserOperation(SubmitUserOperationResponse),
+    GetUserOperationReceipt(UserOperationReceiptResponse),
+
+    // Hypermap
+    CreateNote(CreateNoteResponse),
+
+    // Token Bound Accounts
+    ExecuteViaTba(ExecuteViaTbaResponse),
+    CheckTbaOwnership(CheckTbaOwnershipResponse),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Wallet {
     pub address: WalletAddress,
     pub name: Option<String>,
@@ -913,31 +1042,31 @@ pub struct TxReceipt {
     pub details: serde_json::Value,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Balance {
     pub formatted: String,
     pub raw: String, // U256 as string
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildAndSignUserOperationResponse {
     pub signed_user_operation: serde_json::Value,
     pub entry_point: String,
     pub ready_to_submit: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubmitUserOperationResponse {
     pub user_op_hash: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportWalletResponse {
     pub address: String,
     pub private_key: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListWalletsResponse {
     pub process: String,
     pub wallets: Vec<Wallet>,
@@ -946,14 +1075,14 @@ pub struct ListWalletsResponse {
 
 // === NEW RESPONSE STRUCTS FOR TYPE SAFETY ===
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetTokenBalanceResponse {
     pub balance: String,
     pub formatted: Option<String>,
     pub decimals: Option<u8>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserOperationReceiptResponse {
     pub receipt: Option<serde_json::Value>, // Transaction receipt if mined
     pub user_op_hash: String,
@@ -1008,13 +1137,6 @@ pub struct TransactionHistoryItem {
     pub gas_used: Option<String>,
     pub timestamp: u64,
     pub status: String, // "success", "failed", "pending"
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CheckTbaOwnershipResponse {
-    pub is_owner: bool,
-    pub tba_address: String,
-    pub owner_address: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

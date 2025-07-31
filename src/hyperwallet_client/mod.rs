@@ -4,6 +4,15 @@
 //! wallets and perform blockchain operations. The primary entry point is the `initialize`
 //! function, which performs the handshake protocol.
 //!
+//! ## Type-Safe Architecture
+//!
+//! The library uses `HyperwalletResponseData` enum instead of `serde_json::Value` for responses,
+//! providing full type safety throughout the system:
+//!
+//! - **Individual Functions**: Return specific types like `HyperwalletResponse<CreateWalletResponse>`
+//! - **Message Dispatcher**: Returns `HyperwalletResponse<HyperwalletResponseData>` with enum variants
+//! - **Benefits**: Compile-time type checking, better IDE support, no information loss
+//!
 //! ## Example Usage
 //!
 //! ```rust
@@ -54,14 +63,17 @@ pub mod api;
 // Re-export the most commonly used types for convenience
 pub use types::{
     Balance, BuildAndSignUserOperationForPaymentRequest, BuildAndSignUserOperationResponse,
-    CreateWalletRequest, ErrorCode, ExportWalletRequest, ExportWalletResponse,
-    GetTokenBalanceRequest, GetTokenBalanceResponse, HandshakeConfig, HandshakeRequest,
-    HandshakeStep, HyperwalletMessage, HyperwalletRequest, HyperwalletResponse,
-    ImportWalletRequest, ListWalletsResponse, Operation, OperationCategory, OperationError,
-    PaymasterConfig, ProcessPermissions, SendEthRequest, SendTokenRequest, SessionId, SessionInfo,
-    SpendingLimits, SubmitUserOperationRequest, SubmitUserOperationResponse, TxReceipt,
-    UnlockWalletRequest, UpdatableSetting, UserOperationReceiptResponse, Wallet,
-    WalletSpendingLimits,
+    ChainId, CheckTbaOwnershipResponse, CreateNoteResponse, CreateWalletRequest,
+    CreateWalletResponse, DeleteWalletRequest, DeleteWalletResponse, ErrorCode,
+    ExecuteViaTbaResponse, ExportWalletRequest, ExportWalletResponse, GetBalanceRequest,
+    GetBalanceResponse, GetTokenBalanceRequest, GetTokenBalanceResponse, GetWalletInfoRequest,
+    GetWalletInfoResponse, HandshakeConfig, HandshakeRequest, HandshakeResponseData, HandshakeStep,
+    HyperwalletMessage, HyperwalletRequest, HyperwalletResponse, HyperwalletResponseData,
+    ImportWalletRequest, ImportWalletResponse, ListWalletsResponse, Operation, OperationCategory,
+    OperationError, PaymasterConfig, ProcessAddress, ProcessPermissions, SendEthRequest,
+    SendEthResponse, SendTokenRequest, SendTokenResponse, SessionId, SessionInfo, SpendingLimits,
+    SubmitUserOperationResponse, TxReceipt, UnlockWalletResponse, UpdatableSetting,
+    UserOperationHash, UserOperationReceiptResponse, WalletAddress,
 };
 
 // Re-export all API functions for direct access
