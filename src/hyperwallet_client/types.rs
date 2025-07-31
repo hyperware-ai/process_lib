@@ -887,12 +887,6 @@ impl ProcessPermissions {
 // API Result Structs
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HandshakeResponseData {
-    pub session_id: SessionId,
-    pub session_info: SessionInfo,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnlockWalletResponse {
     pub success: bool,
     pub wallet_id: String,
@@ -983,7 +977,7 @@ pub struct CheckTbaOwnershipResponse {
 #[serde(tag = "operation_type")]
 pub enum HyperwalletResponseData {
     // Session Management
-    Handshake(HandshakeResponseData),
+    Handshake(HandshakeStep),
     UnlockWallet(UnlockWalletResponse),
 
     // Wallet Lifecycle
