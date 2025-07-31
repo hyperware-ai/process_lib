@@ -1,31 +1,24 @@
-//! Clean, simple API functions for Hyperwallet operations.
-//!
-//! These functions follow the HTTP client pattern: simple parameters in, results out.
-//! All the complex message construction is handled internally.
-
 use super::types::{
     self, Balance, BuildAndSignUserOperationForPaymentRequest, BuildAndSignUserOperationResponse,
     CreateWalletRequest, ExportWalletResponse, GetTokenBalanceResponse, HyperwalletMessage,
     HyperwalletRequest, HyperwalletResponse, ImportWalletRequest, ListWalletsResponse,
-    PaymasterConfig, SendEthRequest, SendTokenRequest, SessionId, SubmitUserOperationResponse,
-    TxReceipt, UnlockWalletRequest, UserOperationReceiptResponse, Wallet,
+    PaymasterConfig, RenameWalletRequest, SendEthRequest, SendTokenRequest, SessionId,
+    SubmitUserOperationResponse, TxReceipt, UnlockWalletRequest, UserOperationReceiptResponse,
+    Wallet,
 };
 use super::HyperwalletClientError;
 use crate::wallet;
 use alloy_primitives::{Address as EthAddress, U256};
 
-// === WALLET MANAGEMENT ===
-
-/// Creates a new wallet for the process.
 pub fn create_wallet(
     session_id: &SessionId,
-    name: &str,
+    name: Option<&str>,
     password: Option<&str>,
 ) -> Result<Wallet, HyperwalletClientError> {
     let request = build_request(
         session_id,
         CreateWalletRequest {
-            name: name.to_string(),
+            name: name.map(|s| s.to_string()).unwrap_or_default(),
             password: password.map(|s| s.to_string()),
         },
     );
@@ -39,7 +32,6 @@ pub fn create_wallet(
     })
 }
 
-/// Imports a wallet from a private key.
 pub fn import_wallet(
     session_id: &SessionId,
     name: &str,
@@ -64,7 +56,6 @@ pub fn import_wallet(
     })
 }
 
-/// Unlocks a wallet with the provided password.
 pub fn unlock_wallet(
     session_id: &SessionId,
     target_session_id: &str,
@@ -85,8 +76,7 @@ pub fn unlock_wallet(
     Ok(())
 }
 
-/// Lists all wallets accessible to the process.
-pub fn list_wallets(session_id: &SessionId) -> Result<Vec<Wallet>, HyperwalletClientError> {
+pub fn list_wallets(session_id: &SessionId) -> Result<ListWalletsResponse, HyperwalletClientError> {
     let request = build_request(session_id, ());
 
     let message = HyperwalletMessage::ListWallets(request);
@@ -97,10 +87,9 @@ pub fn list_wallets(session_id: &SessionId) -> Result<Vec<Wallet>, HyperwalletCl
         ))
     })?;
 
-    Ok(list_response.wallets)
+    Ok(list_response)
 }
 
-/// Gets detailed information about a specific wallet.
 pub fn get_wallet_info(
     session_id: &SessionId,
     wallet_id: &str,
@@ -121,7 +110,6 @@ pub fn get_wallet_info(
     })
 }
 
-/// Deletes a wallet permanently.
 pub fn delete_wallet(
     session_id: &SessionId,
     wallet_id: &str,
@@ -138,7 +126,6 @@ pub fn delete_wallet(
     Ok(())
 }
 
-/// Exports a wallet's private key.
 pub fn export_wallet(
     session_id: &SessionId,
     wallet_id: &str,
@@ -161,9 +148,25 @@ pub fn export_wallet(
     })
 }
 
+pub fn rename_wallet(
+    session_id: &SessionId,
+    wallet_id: &str,
+    new_name: &str,
+) -> Result<(), HyperwalletClientError> {
+    let request = build_request(
+        session_id,
+        RenameWalletRequest {
+            wallet_id: wallet_id.to_string(),
+            new_name: new_name.to_string(),
+        },
+    );
+    let message = HyperwalletMessage::RenameWallet(request);
+    let _response: HyperwalletResponse<()> = super::send_message(message)?;
+    Ok(())
+}
+
 // === TRANSACTIONS ===
 
-/// Sends ETH from a managed wallet.
 pub fn send_eth(
     session_id: &SessionId,
     wallet_id: &str,
@@ -188,7 +191,6 @@ pub fn send_eth(
     })
 }
 
-/// Sends tokens from a managed wallet.
 pub fn send_token(
     session_id: &SessionId,
     wallet_id: &str,
@@ -217,7 +219,6 @@ pub fn send_token(
 
 // === QUERIES ===
 
-/// Retrieves the native balance of a managed wallet.
 pub fn get_balance(
     session_id: &SessionId,
     wallet_id: &str,
@@ -238,7 +239,6 @@ pub fn get_balance(
     })
 }
 
-/// Gets the token balance for a wallet.
 pub fn get_token_balance(
     session_id: &SessionId,
     wallet_id: &str,
@@ -263,7 +263,6 @@ pub fn get_token_balance(
 
 // === ACCOUNT ABSTRACTION ===
 
-/// Build and sign a UserOperation for gasless payments.
 pub fn build_and_sign_user_operation_for_payment(
     session_id: &SessionId,
     eoa_wallet_id: &str,
@@ -297,7 +296,6 @@ pub fn build_and_sign_user_operation_for_payment(
     })
 }
 
-/// Submit a UserOperation to the network.
 pub fn submit_user_operation(
     session_id: &SessionId,
     signed_user_operation: serde_json::Value,
@@ -325,7 +323,6 @@ pub fn submit_user_operation(
     Ok(data.user_op_hash)
 }
 
-/// Get the receipt for a UserOperation.
 pub fn get_user_operation_receipt(
     session_id: &SessionId,
     user_op_hash: &str,
@@ -348,7 +345,6 @@ pub fn get_user_operation_receipt(
 
 // === CONVENIENCE FUNCTIONS ===
 
-/// Complete gasless payment flow in one function.
 pub fn execute_gasless_payment(
     session_id: &SessionId,
     signer_wallet_id: &str,
@@ -400,7 +396,6 @@ pub fn execute_gasless_payment(
 
 // === HELPER FUNCTIONS ===
 
-/// Creates TBA execute calldata for an ERC20 transfer payment.
 pub fn create_tba_payment_calldata(
     usdc_contract: &str,
     recipient_address: &str,
@@ -419,35 +414,20 @@ pub fn create_tba_payment_calldata(
         ))
     })?;
 
-    // Convert USDC amount to units (6 decimals)
-    let amount_units = amount_usdc * 1_000_000;
-
-    // Create ERC20 transfer calldata using wallet.rs
     let erc20_calldata =
-        wallet::create_erc20_transfer_calldata(recipient_addr, U256::from(amount_units));
+        wallet::create_erc20_transfer_calldata(recipient_addr, U256::from(amount_usdc));
 
     // Create TBA execute calldata using wallet.rs
-    let tba_calldata = wallet::create_tba_userop_calldata(
-        usdc_addr,      // target: USDC contract
-        U256::ZERO,     // value: 0 (no ETH transfer)
-        erc20_calldata, // data: ERC20 transfer calldata
-        0,              // operation: 0 = CALL
-    );
+    let tba_calldata = wallet::create_tba_userop_calldata(usdc_addr, U256::ZERO, erc20_calldata, 0);
 
     Ok(format!("0x{}", hex::encode(tba_calldata)))
 }
 
 // === INTERNAL HELPERS ===
 
-/// Internal helper to build HyperwalletRequest with session context.
 fn build_request<T>(session_id: &SessionId, operation_data: T) -> HyperwalletRequest<T> {
     HyperwalletRequest {
-        operation: operation_data,
+        data: operation_data,
         session_id: session_id.clone(),
     }
-}
-
-/// Get current timestamp for message construction.
-fn current_timestamp() -> u64 {
-    super::current_timestamp()
 }

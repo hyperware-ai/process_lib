@@ -60,7 +60,6 @@ pub enum Operation {
     CancelOperation,
 }
 
-/// Categories for grouping operations.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum OperationCategory {
     System,
@@ -272,13 +271,13 @@ pub enum HandshakeStep {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HyperwalletRequest<T> {
-    pub operation: T,
+    pub data: T,
     pub session_id: SessionId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandshakeRequest<T> {
-    pub operation: T,
+    pub step: T,
 }
 
 /// Typed message enum for type-safe communication
@@ -450,19 +449,12 @@ impl<T> HyperwalletResponse<T> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildAndSignUserOperationForPaymentRequest {
-    /// Identifier for the EOA that will sign the UserOperation
     pub eoa_wallet_id: String,
-    /// The TBA address that acts as the sender
     pub tba_address: String,
-    /// Target address for the call
     pub target: String,
-    /// Call data in hex string format
     pub call_data: String,
-    /// Whether to use a paymaster
     pub use_paymaster: bool,
-    /// Optional paymaster configuration
     pub paymaster_config: Option<PaymasterConfig>,
-    /// Optional password for the wallet
     pub password: Option<String>,
 }
 
@@ -494,7 +486,7 @@ pub struct CreateWalletRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnlockWalletRequest {
-    pub session_id: String,
+    pub session_id: SessionId,
     pub wallet_id: String,
     pub password: String,
 }
@@ -508,6 +500,7 @@ pub struct ImportWalletRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenameWalletRequest {
+    pub wallet_id: String,
     pub new_name: String,
 }
 
@@ -581,15 +574,15 @@ pub struct ResolveIdentityRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallContractRequest {
     pub to: String,
-    pub data: String,          // hex-encoded calldata
-    pub value: Option<String>, // wei amount as string
+    pub data: String,
+    pub value: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignTransactionRequest {
     pub to: String,
-    pub value: String,        // wei amount as string
-    pub data: Option<String>, // hex-encoded data
+    pub value: String,
+    pub data: Option<String>,
     pub gas_limit: Option<String>,
     pub gas_price: Option<String>,
     pub nonce: Option<u64>,
@@ -597,8 +590,8 @@ pub struct SignTransactionRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignMessageRequest {
-    pub message: String,           // message to sign
-    pub message_type: MessageType, // EIP-191, EIP-712, etc.
+    pub message: String,
+    pub message_type: MessageType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -622,8 +615,8 @@ pub struct GetTransactionHistoryRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EstimateGasRequest {
     pub to: String,
-    pub data: Option<String>,  // hex-encoded calldata
-    pub value: Option<String>, // wei amount as string
+    pub data: Option<String>,
+    pub value: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -635,7 +628,7 @@ pub struct GetTransactionReceiptRequest {
 pub struct SetupTbaDelegationRequest {
     pub tba_address: String,
     pub delegate_address: String,
-    pub permissions: Vec<String>, // permission types
+    pub permissions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -647,7 +640,7 @@ pub struct BuildUserOperationRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignUserOperationRequest {
-    pub unsigned_user_operation: serde_json::Value, // UserOperation struct
+    pub unsigned_user_operation: serde_json::Value,
     pub entry_point: String,
 }
 
@@ -661,14 +654,14 @@ pub struct BuildAndSignUserOperationRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EstimateUserOperationGasRequest {
-    pub user_operation: serde_json::Value, // UserOperation struct
+    pub user_operation: serde_json::Value,
     pub entry_point: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigurePaymasterRequest {
     pub paymaster_address: String,
-    pub paymaster_data: Option<String>, // hex-encoded data
+    pub paymaster_data: Option<String>,
     pub verification_gas_limit: String,
     pub post_op_gas_limit: String,
 }
@@ -682,20 +675,20 @@ pub struct ReadNoteRequest {
 pub struct SetupDelegationRequest {
     pub delegate_address: String,
     pub permissions: Vec<String>,
-    pub expiry: Option<u64>, // timestamp
+    pub expiry: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerifyDelegationRequest {
     pub delegate_address: String,
-    pub signature: String, // hex-encoded signature
+    pub signature: String,
     pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MintEntryRequest {
     pub entry_name: String,
-    pub metadata: serde_json::Value, // entry metadata
+    pub metadata: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -705,7 +698,7 @@ pub struct UpdateSpendingLimitsRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateNoteRequest {
-    pub note_data: serde_json::Value, // flexible note content
+    pub note_data: serde_json::Value,
     pub metadata: Option<serde_json::Value>,
 }
 
@@ -1039,7 +1032,7 @@ pub struct TxReceipt {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Balance {
     pub formatted: String,
-    pub raw: String, // U256 as string
+    pub raw: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1078,38 +1071,38 @@ pub struct GetTokenBalanceResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserOperationReceiptResponse {
-    pub receipt: Option<serde_json::Value>, // Transaction receipt if mined
+    pub receipt: Option<serde_json::Value>,
     pub user_op_hash: String,
-    pub status: String, // "pending", "included", "failed"
+    pub status: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CallContractResponse {
-    pub result: String, // hex-encoded result
+    pub result: String,
     pub gas_used: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SignTransactionResponse {
-    pub signed_transaction: String, // hex-encoded signed transaction
+    pub signed_transaction: String,
     pub transaction_hash: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SignMessageResponse {
-    pub signature: String, // hex-encoded signature
+    pub signature: String,
     pub message_hash: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EstimateGasResponse {
-    pub gas_estimate: String, // gas amount as string
+    pub gas_estimate: String,
     pub gas_price: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetGasPriceResponse {
-    pub gas_price: String, // in wei as string
+    pub gas_price: String,
     pub fast_gas_price: Option<String>,
     pub standard_gas_price: Option<String>,
     pub safe_gas_price: Option<String>,
@@ -1130,7 +1123,7 @@ pub struct TransactionHistoryItem {
     pub value: String,
     pub gas_used: Option<String>,
     pub timestamp: u64,
-    pub status: String, // "success", "failed", "pending"
+    pub status: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
