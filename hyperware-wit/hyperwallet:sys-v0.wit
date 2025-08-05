@@ -629,3 +629,8 @@ interface hyperwallet {
         is-owned: bool,
     }
 }
+
+world hyperwallet-sys-v0 {
+    import hyperwallet;
+    include process-v1;
+}
