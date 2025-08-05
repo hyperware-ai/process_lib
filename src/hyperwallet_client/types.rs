@@ -270,153 +270,146 @@ pub enum HandshakeStep {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HyperwalletRequest<T> {
-    pub data: T,
+pub struct HyperwalletMessage {
+    pub request: HyperwalletRequest,
     pub session_id: SessionId,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HandshakeRequest<T> {
-    pub step: T,
 }
 
 /// Typed message enum for type-safe communication
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "operation")]
-pub enum HyperwalletMessage {
+pub enum HyperwalletRequest {
     // Session Management (Unauthenticated)
-    Handshake(HandshakeRequest<HandshakeStep>),
+    Handshake(HandshakeStep),
 
     // Session Management (Authenticated)
-    UnlockWallet(HyperwalletRequest<UnlockWalletRequest>),
+    UnlockWallet(UnlockWalletRequest),
 
     // Wallet Lifecycle Management
-    CreateWallet(HyperwalletRequest<CreateWalletRequest>),
-    ImportWallet(HyperwalletRequest<ImportWalletRequest>),
-    DeleteWallet(HyperwalletRequest<DeleteWalletRequest>),
-    RenameWallet(HyperwalletRequest<RenameWalletRequest>),
-    ExportWallet(HyperwalletRequest<ExportWalletRequest>),
-    ListWallets(HyperwalletRequest<()>), // No parameters needed
-    GetWalletInfo(HyperwalletRequest<GetWalletInfoRequest>),
+    CreateWallet(CreateWalletRequest),
+    ImportWallet(ImportWalletRequest),
+    DeleteWallet(DeleteWalletRequest),
+    RenameWallet(RenameWalletRequest),
+    ExportWallet(ExportWalletRequest),
+    ListWallets,
+    GetWalletInfo(GetWalletInfoRequest),
 
     // Ethereum Operations
-    SendEth(HyperwalletRequest<SendEthRequest>),
-    SendToken(HyperwalletRequest<SendTokenRequest>),
-    ApproveToken(HyperwalletRequest<ApproveTokenRequest>),
-    GetBalance(HyperwalletRequest<GetBalanceRequest>),
-    GetTokenBalance(HyperwalletRequest<GetTokenBalanceRequest>),
-    CallContract(HyperwalletRequest<CallContractRequest>),
-    SignTransaction(HyperwalletRequest<SignTransactionRequest>),
-    SignMessage(HyperwalletRequest<SignMessageRequest>),
-    GetTransactionHistory(HyperwalletRequest<GetTransactionHistoryRequest>),
-    EstimateGas(HyperwalletRequest<EstimateGasRequest>),
-    GetGasPrice(HyperwalletRequest<()>), // No parameters needed
-    GetTransactionReceipt(HyperwalletRequest<GetTransactionReceiptRequest>),
+    SendEth(SendEthRequest),
+    SendToken(SendTokenRequest),
+    ApproveToken(ApproveTokenRequest),
+    GetBalance(GetBalanceRequest),
+    GetTokenBalance(GetTokenBalanceRequest),
+    CallContract(CallContractRequest),
+    SignTransaction(SignTransactionRequest),
+    SignMessage(SignMessageRequest),
+    GetTransactionHistory(GetTransactionHistoryRequest),
+    EstimateGas(EstimateGasRequest),
+    GetGasPrice,
+    GetTransactionReceipt(GetTransactionReceiptRequest),
 
     // Token Bound Account Operations
-    ExecuteViaTba(HyperwalletRequest<ExecuteViaTbaRequest>),
-    CheckTbaOwnership(HyperwalletRequest<CheckTbaOwnershipRequest>),
-    SetupTbaDelegation(HyperwalletRequest<SetupTbaDelegationRequest>),
+    ExecuteViaTba(ExecuteViaTbaRequest),
+    CheckTbaOwnership(CheckTbaOwnershipRequest),
+    SetupTbaDelegation(SetupTbaDelegationRequest),
 
     // Account Abstraction (ERC-4337)
-    BuildAndSignUserOperationForPayment(
-        HyperwalletRequest<BuildAndSignUserOperationForPaymentRequest>,
-    ),
-    SubmitUserOperation(HyperwalletRequest<SubmitUserOperationRequest>),
-    GetUserOperationReceipt(HyperwalletRequest<GetUserOperationReceiptRequest>),
-    BuildUserOperation(HyperwalletRequest<BuildUserOperationRequest>),
-    SignUserOperation(HyperwalletRequest<SignUserOperationRequest>),
-    BuildAndSignUserOperation(HyperwalletRequest<BuildAndSignUserOperationRequest>),
-    EstimateUserOperationGas(HyperwalletRequest<EstimateUserOperationGasRequest>),
-    ConfigurePaymaster(HyperwalletRequest<ConfigurePaymasterRequest>),
+    BuildAndSignUserOperationForPayment(BuildAndSignUserOperationForPaymentRequest),
+    SubmitUserOperation(SubmitUserOperationRequest),
+    GetUserOperationReceipt(GetUserOperationReceiptRequest),
+    BuildUserOperation(BuildUserOperationRequest),
+    SignUserOperation(SignUserOperationRequest),
+    BuildAndSignUserOperation(BuildAndSignUserOperationRequest),
+    EstimateUserOperationGas(EstimateUserOperationGasRequest),
+    ConfigurePaymaster(ConfigurePaymasterRequest),
 
     // Hypermap Operations
-    ResolveIdentity(HyperwalletRequest<ResolveIdentityRequest>),
-    CreateNote(HyperwalletRequest<CreateNoteRequest>),
-    ReadNote(HyperwalletRequest<ReadNoteRequest>),
-    SetupDelegation(HyperwalletRequest<SetupDelegationRequest>),
-    VerifyDelegation(HyperwalletRequest<VerifyDelegationRequest>),
-    MintEntry(HyperwalletRequest<MintEntryRequest>),
+    ResolveIdentity(ResolveIdentityRequest),
+    CreateNote(CreateNoteRequest),
+    ReadNote(ReadNoteRequest),
+    SetupDelegation(SetupDelegationRequest),
+    VerifyDelegation(VerifyDelegationRequest),
+    MintEntry(MintEntryRequest),
 
     // Process Management (Legacy)
-    UpdateSpendingLimits(HyperwalletRequest<UpdateSpendingLimitsRequest>),
+    UpdateSpendingLimits(UpdateSpendingLimitsRequest),
 }
 
 impl HyperwalletMessage {
     /// Get the operation type for this message - used for permission checking and routing
     pub fn operation_type(&self) -> Operation {
-        match self {
+        match self.request {
             // Session Management
-            HyperwalletMessage::Handshake(_) => Operation::Handshake,
-            HyperwalletMessage::UnlockWallet(_) => Operation::UnlockWallet,
+            HyperwalletRequest::Handshake(_) => Operation::Handshake,
+            HyperwalletRequest::UnlockWallet(_) => Operation::UnlockWallet,
 
             // Wallet Lifecycle Management
-            HyperwalletMessage::CreateWallet(_) => Operation::CreateWallet,
-            HyperwalletMessage::ImportWallet(_) => Operation::ImportWallet,
-            HyperwalletMessage::DeleteWallet(_) => Operation::DeleteWallet,
-            HyperwalletMessage::RenameWallet(_) => Operation::RenameWallet,
-            HyperwalletMessage::ExportWallet(_) => Operation::ExportWallet,
-            HyperwalletMessage::ListWallets(_) => Operation::ListWallets,
-            HyperwalletMessage::GetWalletInfo(_) => Operation::GetWalletInfo,
+            HyperwalletRequest::CreateWallet(_) => Operation::CreateWallet,
+            HyperwalletRequest::ImportWallet(_) => Operation::ImportWallet,
+            HyperwalletRequest::DeleteWallet(_) => Operation::DeleteWallet,
+            HyperwalletRequest::RenameWallet(_) => Operation::RenameWallet,
+            HyperwalletRequest::ExportWallet(_) => Operation::ExportWallet,
+            HyperwalletRequest::ListWallets => Operation::ListWallets,
+            HyperwalletRequest::GetWalletInfo(_) => Operation::GetWalletInfo,
 
             // Ethereum Operations
-            HyperwalletMessage::SendEth(_) => Operation::SendEth,
-            HyperwalletMessage::SendToken(_) => Operation::SendToken,
-            HyperwalletMessage::ApproveToken(_) => Operation::ApproveToken,
-            HyperwalletMessage::GetBalance(_) => Operation::GetBalance,
-            HyperwalletMessage::GetTokenBalance(_) => Operation::GetTokenBalance,
-            HyperwalletMessage::CallContract(_) => Operation::CallContract,
-            HyperwalletMessage::SignTransaction(_) => Operation::SignTransaction,
-            HyperwalletMessage::SignMessage(_) => Operation::SignMessage,
-            HyperwalletMessage::GetTransactionHistory(_) => Operation::GetTransactionHistory,
-            HyperwalletMessage::EstimateGas(_) => Operation::EstimateGas,
-            HyperwalletMessage::GetGasPrice(_) => Operation::GetGasPrice,
-            HyperwalletMessage::GetTransactionReceipt(_) => Operation::GetTransactionReceipt,
+            HyperwalletRequest::SendEth(_) => Operation::SendEth,
+            HyperwalletRequest::SendToken(_) => Operation::SendToken,
+            HyperwalletRequest::ApproveToken(_) => Operation::ApproveToken,
+            HyperwalletRequest::GetBalance(_) => Operation::GetBalance,
+            HyperwalletRequest::GetTokenBalance(_) => Operation::GetTokenBalance,
+            HyperwalletRequest::CallContract(_) => Operation::CallContract,
+            HyperwalletRequest::SignTransaction(_) => Operation::SignTransaction,
+            HyperwalletRequest::SignMessage(_) => Operation::SignMessage,
+            HyperwalletRequest::GetTransactionHistory(_) => Operation::GetTransactionHistory,
+            HyperwalletRequest::EstimateGas(_) => Operation::EstimateGas,
+            HyperwalletRequest::GetGasPrice => Operation::GetGasPrice,
+            HyperwalletRequest::GetTransactionReceipt(_) => Operation::GetTransactionReceipt,
 
             // Token Bound Account Operations
-            HyperwalletMessage::ExecuteViaTba(_) => Operation::ExecuteViaTba,
-            HyperwalletMessage::CheckTbaOwnership(_) => Operation::CheckTbaOwnership,
-            HyperwalletMessage::SetupTbaDelegation(_) => Operation::SetupTbaDelegation,
+            HyperwalletRequest::ExecuteViaTba(_) => Operation::ExecuteViaTba,
+            HyperwalletRequest::CheckTbaOwnership(_) => Operation::CheckTbaOwnership,
+            HyperwalletRequest::SetupTbaDelegation(_) => Operation::SetupTbaDelegation,
 
             // Account Abstraction (ERC-4337)
-            HyperwalletMessage::BuildAndSignUserOperationForPayment(_) => {
+            HyperwalletRequest::BuildAndSignUserOperationForPayment(_) => {
                 Operation::BuildAndSignUserOperationForPayment
             }
-            HyperwalletMessage::SubmitUserOperation(_) => Operation::SubmitUserOperation,
-            HyperwalletMessage::GetUserOperationReceipt(_) => Operation::GetUserOperationReceipt,
-            HyperwalletMessage::BuildUserOperation(_) => Operation::BuildUserOperation,
-            HyperwalletMessage::SignUserOperation(_) => Operation::SignUserOperation,
-            HyperwalletMessage::BuildAndSignUserOperation(_) => {
+            HyperwalletRequest::SubmitUserOperation(_) => Operation::SubmitUserOperation,
+            HyperwalletRequest::GetUserOperationReceipt(_) => Operation::GetUserOperationReceipt,
+            HyperwalletRequest::BuildUserOperation(_) => Operation::BuildUserOperation,
+            HyperwalletRequest::SignUserOperation(_) => Operation::SignUserOperation,
+            HyperwalletRequest::BuildAndSignUserOperation(_) => {
                 Operation::BuildAndSignUserOperation
             }
-            HyperwalletMessage::EstimateUserOperationGas(_) => Operation::EstimateUserOperationGas,
-            HyperwalletMessage::ConfigurePaymaster(_) => Operation::ConfigurePaymaster,
+            HyperwalletRequest::EstimateUserOperationGas(_) => Operation::EstimateUserOperationGas,
+            HyperwalletRequest::ConfigurePaymaster(_) => Operation::ConfigurePaymaster,
 
             // Hypermap Operations
-            HyperwalletMessage::ResolveIdentity(_) => Operation::ResolveIdentity,
-            HyperwalletMessage::CreateNote(_) => Operation::CreateNote,
-            HyperwalletMessage::ReadNote(_) => Operation::ReadNote,
-            HyperwalletMessage::SetupDelegation(_) => Operation::SetupDelegation,
-            HyperwalletMessage::VerifyDelegation(_) => Operation::VerifyDelegation,
-            HyperwalletMessage::MintEntry(_) => Operation::MintEntry,
+            HyperwalletRequest::ResolveIdentity(_) => Operation::ResolveIdentity,
+            HyperwalletRequest::CreateNote(_) => Operation::CreateNote,
+            HyperwalletRequest::ReadNote(_) => Operation::ReadNote,
+            HyperwalletRequest::SetupDelegation(_) => Operation::SetupDelegation,
+            HyperwalletRequest::VerifyDelegation(_) => Operation::VerifyDelegation,
+            HyperwalletRequest::MintEntry(_) => Operation::MintEntry,
 
             // Process Management (Legacy)
-            HyperwalletMessage::UpdateSpendingLimits(_) => Operation::UpdateSpendingLimits,
+            HyperwalletRequest::UpdateSpendingLimits(_) => Operation::UpdateSpendingLimits,
         }
     }
 }
 
 /// Unified response type
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HyperwalletResponse<T> {
+pub struct HyperwalletResponse {
     pub success: bool,
-    pub data: Option<T>,
+    pub data: Option<HyperwalletResponseData>,
     pub error: Option<OperationError>,
     pub request_id: Option<String>,
 }
 
-impl<T> HyperwalletResponse<T> {
-    pub fn success(data: T) -> Self {
+impl HyperwalletResponse {
+    pub fn success(data: HyperwalletResponseData) -> Self {
         Self {
             success: true,
             data: Some(data),
@@ -431,18 +424,6 @@ impl<T> HyperwalletResponse<T> {
             data: None,
             error: Some(error),
             request_id: None,
-        }
-    }
-
-    pub fn map<U, F>(self, f: F) -> HyperwalletResponse<U>
-    where
-        F: FnOnce(T) -> U,
-    {
-        HyperwalletResponse {
-            success: self.success,
-            data: self.data.map(f),
-            error: self.error,
-            request_id: self.request_id,
         }
     }
 }
