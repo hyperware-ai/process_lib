@@ -56,6 +56,7 @@ pub mod logging;
 pub mod net;
 pub mod sign;
 /// Low-level Ethereum signing operations and key management.
+#[cfg(feature = "hyperwallet")]
 pub mod signer;
 /// Interact with the sqlite module
 ///
@@ -72,11 +73,13 @@ pub mod timer;
 /// `vfs:distro:sys` to use this module.
 pub mod vfs;
 /// Ethereum wallet management with transaction preparation and submission.
+#[cfg(feature = "hyperwallet")]
 pub mod wallet;
 
 /// A set of types and macros for writing "script" processes.
 pub mod scripting;
 
+#[cfg(feature = "hyperwallet")]
 pub mod hyperwallet_client;
 
 mod types;
