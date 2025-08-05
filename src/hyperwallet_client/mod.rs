@@ -2,6 +2,9 @@ use crate::Request;
 use thiserror::Error;
 
 pub mod api;
+pub mod serde_impls;
+mod serde_request_response_impls;
+mod serde_variant_impls;
 pub mod types;
 pub use types::{
     Balance, BuildAndSignUserOperationForPaymentRequest, BuildAndSignUserOperationResponse,
@@ -45,10 +48,10 @@ pub enum HyperwalletClientError {
 pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletClientError> {
     let client_name = config.client_name.expect("Client name is required");
 
-    let hello_step = types::HandshakeStep::ClientHello {
+    let hello_step = types::HandshakeStep::ClientHello(types::ClientHello {
         client_version: "0.1.0".to_string(),
         client_name,
-    };
+    });
     let hello_message = types::HyperwalletMessage {
         request: types::HyperwalletRequest::Handshake(hello_step),
         session_id: String::new(),
@@ -68,10 +71,7 @@ pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletCli
     };
 
     let supported_operations = match welcome_step {
-        types::HandshakeStep::ServerWelcome {
-            supported_operations,
-            ..
-        } => supported_operations,
+        types::HandshakeStep::ServerWelcome(server_welcome) => server_welcome.supported_operations,
         _ => {
             return Err(HyperwalletClientError::ServerError(
                 types::OperationError::internal_error(
@@ -94,10 +94,10 @@ pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletCli
         }
     }
 
-    let register_step = types::HandshakeStep::Register {
+    let register_step = types::HandshakeStep::Register(types::RegisterRequest {
         required_operations: config.required_operations.into_iter().collect(),
         spending_limits: config.spending_limits,
-    };
+    });
 
     let register_message = types::HyperwalletMessage {
         request: types::HyperwalletRequest::Handshake(register_step),
@@ -119,14 +119,11 @@ pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletCli
 
     // Extract SessionInfo using pattern matching
     match complete_step {
-        types::HandshakeStep::Complete {
-            registered_permissions,
-            session_id,
-        } => {
-            Ok(SessionInfo {
+        types::HandshakeStep::Complete(complete_handshake) => {
+            Ok(types::SessionInfo {
                 server_version: "0.1.0".to_string(), //lol, server should send it's version
-                session_id,
-                registered_permissions,
+                session_id: complete_handshake.session_id,
+                registered_permissions: complete_handshake.registered_permissions,
                 initial_chain_id: config.initial_chain_id,
             })
         }
