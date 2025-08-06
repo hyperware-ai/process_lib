@@ -472,8 +472,9 @@ impl Default for PaymasterConfig {
         Self {
             is_circle_paymaster: true,
             paymaster_address: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec".to_string(), // Base Circle paymaster
-            paymaster_verification_gas: "0x7a120".to_string(),                           // 500000
-            paymaster_post_op_gas: "0x493e0".to_string(),                                // 300000
+            //paymaster_address: "0x861a1Be40c595db980341e41A7a5D09C772f7c2b".to_string(), // Base Hyperware paymaster
+            paymaster_verification_gas: "0x7a120".to_string(),
+            paymaster_post_op_gas: "0x493e0".to_string(),
         }
     }
 }
