@@ -81,6 +81,9 @@ pub mod vfs;
 /// A set of types and macros for writing "script" processes.
 pub mod scripting;
 
+#[cfg(feature = "hyperapp")]
+pub mod hyperapp;
+
 mod types;
 pub use types::{
     address::{Address, AddressParseError},
