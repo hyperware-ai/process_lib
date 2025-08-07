@@ -4,12 +4,13 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures_util::task::noop_waker_ref;
 use crate::{
+    get_state, http,
     http::server::{HttpBindingConfig, HttpServer, IncomingHttpRequest, WsBindingConfig},
-    logging::{info, error},
-    get_state, http, set_state, timer, Address, BuildError, LazyLoadBlob, Message, Request, SendError,
+    logging::{error, info},
+    set_state, timer, Address, BuildError, LazyLoadBlob, Message, Request, SendError,
 };
+use futures_util::task::noop_waker_ref;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
@@ -49,7 +50,10 @@ pub struct AppHelpers {
 // Access function for the current path
 pub fn get_path() -> Option<String> {
     APP_HELPERS.with(|helpers| {
-        helpers.borrow().current_http_context.as_ref()
+        helpers
+            .borrow()
+            .current_http_context
+            .as_ref()
             .and_then(|ctx| ctx.request.path().ok())
     })
 }
@@ -61,7 +65,10 @@ pub fn get_server() -> Option<&'static mut HttpServer> {
 
 pub fn get_http_method() -> Option<String> {
     APP_HELPERS.with(|helpers| {
-        helpers.borrow().current_http_context.as_ref()
+        helpers
+            .borrow()
+            .current_http_context
+            .as_ref()
             .and_then(|ctx| ctx.request.method().ok())
             .map(|m| m.to_string())
     })
@@ -84,7 +91,6 @@ pub fn add_response_header(key: String, value: String) {
         }
     })
 }
-
 
 pub fn clear_http_request_context() {
     APP_HELPERS.with(|helpers| {
@@ -160,9 +166,8 @@ struct ResponseFuture {
 impl ResponseFuture {
     fn new(correlation_id: String) -> Self {
         // Capture current HTTP context when future is created (at .await point)
-        let http_context = APP_HELPERS.with(|helpers| {
-            helpers.borrow().current_http_context.clone()
-        });
+        let http_context =
+            APP_HELPERS.with(|helpers| helpers.borrow().current_http_context.clone());
 
         Self {
             correlation_id,
@@ -281,7 +286,6 @@ macro_rules! hyper {
     };
 }
 
-
 // Enum defining the state persistance behaviour
 #[derive(Clone)]
 pub enum SaveOptions {
@@ -342,7 +346,9 @@ where
     APP_CONTEXT.with(|ctx| {
         let mut ctx_mut = ctx.borrow_mut();
         if let Some(ref mut hidden_state) = ctx_mut.hidden_state {
-            if matches!(hidden_state.save_config, SaveOptions::OnDiff) && hidden_state.old_state.is_none() {
+            if matches!(hidden_state.save_config, SaveOptions::OnDiff)
+                && hidden_state.old_state.is_none()
+            {
                 if let Ok(s_bytes) = rmp_serde::to_vec(state) {
                     hidden_state.old_state = Some(s_bytes);
                 }
