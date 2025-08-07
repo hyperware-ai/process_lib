@@ -142,19 +142,19 @@ impl<'a> Deserialize<'a> for wit::HyperwalletResponse {
                             if data.is_some() {
                                 return Err(de::Error::duplicate_field("data"));
                             }
-                            data = Some(map.next_value()?);
+                            data = map.next_value()?;
                         }
                         Field::Error => {
                             if error.is_some() {
                                 return Err(de::Error::duplicate_field("error"));
                             }
-                            error = Some(map.next_value()?);
+                            error = map.next_value()?;
                         }
                         Field::RequestId => {
                             if request_id.is_some() {
                                 return Err(de::Error::duplicate_field("request_id"));
                             }
-                            request_id = Some(map.next_value()?);
+                            request_id = map.next_value()?;
                         }
                     }
                 }
@@ -338,9 +338,13 @@ impl Serialize for wit::CreateWalletRequest {
     where
         S: serde::ser::Serializer,
     {
-        let mut state = serializer.serialize_struct("CreateWalletRequest", 2)?;
+        // Only include password when present to avoid sending null
+        let field_count = if self.password.is_some() { 2 } else { 1 };
+        let mut state = serializer.serialize_struct("CreateWalletRequest", field_count)?;
         state.serialize_field("name", &self.name)?;
-        state.serialize_field("password", &self.password)?;
+        if let Some(ref pwd) = self.password {
+            state.serialize_field("password", pwd)?;
+        }
         state.end()
     }
 }

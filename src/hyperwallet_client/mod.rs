@@ -1,9 +1,10 @@
+use crate::println as kiprintln;
 use crate::Request;
 use thiserror::Error;
 
 pub mod api;
 pub mod serde_impls;
-mod serde_request_response_impls;
+mod serde_response_impls; // Proper implementations replacing broken stubs
 mod serde_variant_impls;
 pub mod types;
 pub use types::{
@@ -146,6 +147,8 @@ pub(crate) fn send_message(
         .send_and_await_response(5) // 5s timeout
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?;
+
+    kiprintln!("Response: {:?}", response);
 
     let hyperwallet_response: types::HyperwalletResponse =
         serde_json::from_slice(response.body()).map_err(HyperwalletClientError::Deserialization)?;

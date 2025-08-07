@@ -252,9 +252,83 @@ impl<'a> Deserialize<'a> for wit::HyperwalletRequest {
                         Ok(CreateWallet(req))
                     }
                     "ListWallets" => Ok(ListWallets),
+                    "GetWalletInfo" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize GetWalletInfoRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(GetWalletInfo(req))
+                    }
+                    "GetBalance" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize GetBalanceRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(GetBalance(req))
+                    }
+                    "GetTokenBalance" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize GetTokenBalanceRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(GetTokenBalance(req))
+                    }
+                    "BuildAndSignUserOperationForPayment" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize BuildAndSignUserOperationForPaymentRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(BuildAndSignUserOperationForPayment(req))
+                    }
+                    "SubmitUserOperation" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize SubmitUserOperationRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(SubmitUserOperation(req))
+                    }
+                    "GetUserOperationReceipt" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize GetUserOperationReceiptRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(GetUserOperationReceipt(req))
+                    }
                     _ => {
-                        // For unimplemented variants, return an error
-                        Err(de::Error::unknown_variant(&variant_type, &[]))
+                        // For unimplemented variants, return an error with helpful message
+                        Err(de::Error::unknown_variant(
+                            &variant_type,
+                            &[
+                                "Handshake",
+                                "UnlockWallet",
+                                "CreateWallet",
+                                "ListWallets",
+                                "GetWalletInfo",
+                                "GetBalance",
+                                "GetTokenBalance",
+                                "BuildAndSignUserOperationForPayment",
+                                "SubmitUserOperation",
+                                "GetUserOperationReceipt",
+                            ],
+                        ))
                     }
                 }
             }
@@ -409,9 +483,113 @@ impl<'a> Deserialize<'a> for wit::HyperwalletResponseData {
                         })?;
                         Ok(Handshake(step))
                     }
+                    "ListWallets" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize ListWalletsResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(ListWallets(response))
+                    }
+                    "GetWalletInfo" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize GetWalletInfoResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(GetWalletInfo(response))
+                    }
+                    "CreateWallet" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize CreateWalletResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(CreateWallet(response))
+                    }
+                    "UnlockWallet" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize UnlockWalletResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(UnlockWallet(response))
+                    }
+                    "BuildAndSignUserOperationForPayment" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize BuildAndSignUserOperationResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(BuildAndSignUserOperationForPayment(response))
+                    }
+                    "SubmitUserOperation" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize SubmitUserOperationResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(SubmitUserOperation(response))
+                    }
+                    "GetUserOperationReceipt" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize UserOperationReceiptResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(GetUserOperationReceipt(response))
+                    }
+                    "GetBalance" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize GetBalanceResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(GetBalance(response))
+                    }
+                    "GetTokenBalance" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize GetTokenBalanceResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(GetTokenBalance(response))
+                    }
                     _ => {
-                        // For unimplemented variants, return an error
-                        Err(de::Error::unknown_variant(&variant_type, &[]))
+                        // For unimplemented variants, return an error with helpful message
+                        Err(de::Error::unknown_variant(
+                            &variant_type,
+                            &[
+                                "Handshake",
+                                "ListWallets",
+                                "GetWalletInfo",
+                                "CreateWallet",
+                                "UnlockWallet",
+                                "BuildAndSignUserOperationForPayment",
+                                "SubmitUserOperation",
+                                "GetUserOperationReceipt",
+                                "GetBalance",
+                                "GetTokenBalance",
+                            ],
+                        ))
                     }
                 }
             }
