@@ -9,7 +9,7 @@ repository = "https://github.com/hyperware-ai/process_lib"
 license = "Apache-2.0"
 
 [features]
-hyperapp = ["dep:futures-util", "dep:uuid"]
+hyperapp = ["dep:futures-util", "dep:uuid", "logging"]
 logging = ["dep:color-eyre", "dep:tracing", "dep:tracing-error", "dep:tracing-subscriber"]
 simulation-mode = []
 

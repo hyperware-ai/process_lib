@@ -5,20 +5,14 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures_util::task::noop_waker_ref;
-use hyperware_process_lib::{
-    http::server::{HttpServer, IncomingHttpRequest},
-    logging::info,
-    get_state, http, set_state, timer, BuildError, LazyLoadBlob, Message, Request, SendError,
+use crate::{
+    http::server::{HttpBindingConfig, HttpServer, IncomingHttpRequest, WsBindingConfig},
+    logging::{info, error},
+    get_state, http, set_state, timer, Address, BuildError, LazyLoadBlob, Message, Request, SendError,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
-
-pub mod prelude {
-    pub use crate::APP_CONTEXT;
-    pub use crate::RESPONSE_REGISTRY;
-    // Add other commonly used items here
-}
 
 thread_local! {
     pub static APP_CONTEXT: RefCell<AppContext> = RefCell::new(AppContext {
@@ -99,7 +93,7 @@ pub fn clear_http_request_context() {
 }
 
 // Access function for the source address of the current message
-pub fn source() -> hyperware_process_lib::Address {
+pub fn source() -> Address {
     APP_HELPERS.with(|ctx| {
         ctx.borrow()
             .current_message
@@ -384,7 +378,7 @@ where
 }
 
 pub fn setup_server(
-    ui_config: Option<&hyperware_process_lib::http::server::HttpBindingConfig>,
+    ui_config: Option<&HttpBindingConfig>,
     endpoints: &[Binding],
 ) -> http::server::HttpServer {
     let mut server = http::server::HttpServer::new(5);
@@ -441,7 +435,7 @@ pub fn pretty_print_send_error(error: &SendError) {
         .as_ref()
         .map(|bytes| String::from_utf8_lossy(bytes).into_owned());
 
-    hyperware_process_lib::logging::error!(
+    error!(
         "SendError {{
     kind: {:?},
     target: {},
@@ -489,11 +483,11 @@ pub fn no_remote_request<S>(_msg: &Message, _state: &mut S, _req: ()) {
 pub enum Binding {
     Http {
         path: &'static str,
-        config: hyperware_process_lib::http::server::HttpBindingConfig,
+        config: HttpBindingConfig,
     },
     Ws {
         path: &'static str,
-        config: hyperware_process_lib::http::server::WsBindingConfig,
+        config: WsBindingConfig,
     },
 }
 
