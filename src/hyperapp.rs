@@ -15,6 +15,13 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
+// macro_export puts it in the root,
+//  so we re-export here so you can use as either
+//  hyperware_process_lib::hyper
+//  or
+//  hyperware_process_lib::hyperapp:hyper
+pub use crate::hyper;
+
 thread_local! {
     pub static APP_CONTEXT: RefCell<AppContext> = RefCell::new(AppContext {
         hidden_state: None,
