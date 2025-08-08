@@ -17,10 +17,10 @@ use uuid::Uuid;
 
 // macro_export puts it in the root,
 //  so we re-export here so you can use as either
-//  hyperware_process_lib::hyper
+//  hyperware_process_lib::run_async
 //  or
-//  hyperware_process_lib::hyperapp:hyper
-pub use crate::hyper;
+//  hyperware_process_lib::hyperapp::run_async
+pub use crate::run_async;
 
 thread_local! {
     pub static APP_CONTEXT: RefCell<AppContext> = RefCell::new(AppContext {
