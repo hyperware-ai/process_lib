@@ -285,7 +285,7 @@ where
 #[macro_export]
 macro_rules! hyper {
     ($($code:tt)*) => {
-        $crate::APP_CONTEXT.with(|ctx| {
+        hyperware_process_lib::hyperapp::APP_CONTEXT.with(|ctx| {
             ctx.borrow_mut().executor.spawn(async move {
                 $($code)*
             })
