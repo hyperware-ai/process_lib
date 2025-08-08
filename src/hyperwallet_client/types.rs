@@ -22,6 +22,9 @@ pub use wit::{
     Operation, OperationCategory,
 };
 
+// Additional WIT types needed by clients
+pub use wit::Eip712Data;
+
 // Implement Default for PaymasterConfig
 impl Default for wit::PaymasterConfig {
     fn default() -> Self {
@@ -65,6 +68,21 @@ pub struct SessionInfo {
     pub session_id: SessionId,
     pub registered_permissions: ProcessPermissions,
     pub initial_chain_id: ChainId,
+}
+
+impl SessionInfo {
+    /// Returns true when the server registered this operation for the session
+    pub fn supports(&self, operation: &Operation) -> bool {
+        self.registered_permissions
+            .allowed_operations
+            .iter()
+            .any(|op| op == operation)
+    }
+
+    /// Returns the list of operations the server registered for the session
+    pub fn allowed_operations(&self) -> &Vec<Operation> {
+        &self.registered_permissions.allowed_operations
+    }
 }
 
 /// Configuration for the handshake process

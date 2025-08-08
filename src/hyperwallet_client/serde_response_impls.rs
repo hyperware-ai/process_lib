@@ -1,7 +1,7 @@
 // Proper serde implementations for request/response types
 
 use crate::hyperware::process::hyperwallet as wit;
-use serde::de::{self, MapAccess, Visitor};
+// no direct use of serde::de; rely on derives and serde_json where necessary
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 
@@ -13,10 +13,13 @@ impl Serialize for wit::ImportWalletRequest {
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("ImportWalletRequest", 3)?;
+        let field_count = if self.password.is_some() { 3 } else { 2 };
+        let mut state = serializer.serialize_struct("ImportWalletRequest", field_count)?;
         state.serialize_field("name", &self.name)?;
         state.serialize_field("private_key", &self.private_key)?;
-        state.serialize_field("password", &self.password)?;
+        if let Some(ref pwd) = self.password {
+            state.serialize_field("password", pwd)?;
+        }
         state.end()
     }
 }
@@ -106,9 +109,12 @@ impl Serialize for wit::ExportWalletRequest {
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("ExportWalletRequest", 2)?;
+        let field_count = if self.password.is_some() { 2 } else { 1 };
+        let mut state = serializer.serialize_struct("ExportWalletRequest", field_count)?;
         state.serialize_field("wallet_id", &self.wallet_id)?;
-        state.serialize_field("password", &self.password)?;
+        if let Some(ref pwd) = self.password {
+            state.serialize_field("password", pwd)?;
+        }
         state.end()
     }
 }

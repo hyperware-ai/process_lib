@@ -10,14 +10,14 @@ pub mod types;
 pub use types::{
     Balance, BuildAndSignUserOperationForPaymentRequest, BuildAndSignUserOperationResponse,
     ChainId, CheckTbaOwnershipResponse, CreateNoteResponse, CreateWalletRequest,
-    CreateWalletResponse, DeleteWalletRequest, DeleteWalletResponse, ErrorCode,
+    CreateWalletResponse, DeleteWalletRequest, DeleteWalletResponse, Eip712Data, ErrorCode,
     ExecuteViaTbaResponse, ExportWalletRequest, ExportWalletResponse, GetBalanceRequest,
     GetBalanceResponse, GetTokenBalanceRequest, GetTokenBalanceResponse, GetWalletInfoRequest,
     GetWalletInfoResponse, HandshakeConfig, HandshakeStep, HyperwalletMessage, HyperwalletRequest,
     HyperwalletResponse, HyperwalletResponseData, ImportWalletRequest, ImportWalletResponse,
-    ListWalletsResponse, Operation, OperationCategory, OperationError, PaymasterConfig,
-    ProcessAddress, ProcessPermissions, RenameWalletRequest, SendEthRequest, SendEthResponse,
-    SendTokenRequest, SendTokenResponse, SessionId, SessionInfo, SpendingLimits,
+    ListWalletsResponse, MessageType, Operation, OperationCategory, OperationError,
+    PaymasterConfig, ProcessAddress, ProcessPermissions, RenameWalletRequest, SendEthRequest,
+    SendEthResponse, SendTokenRequest, SendTokenResponse, SessionId, SessionInfo, SpendingLimits,
     SubmitUserOperationResponse, TxReceipt, UnlockWalletResponse, UpdatableSetting,
     UserOperationHash, UserOperationReceiptResponse, WalletAddress,
 };
@@ -47,10 +47,11 @@ pub enum HyperwalletClientError {
 
 /// Performs the full handshake and registration protocol with the Hyperwallet service.
 pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletClientError> {
+    const CLIENT_PROTOCOL_VERSION: &str = "0.1.0";
     let client_name = config.client_name.expect("Client name is required");
 
     let hello_step = types::HandshakeStep::ClientHello(types::ClientHello {
-        client_version: "0.1.0".to_string(),
+        client_version: CLIENT_PROTOCOL_VERSION.to_string(),
         client_name,
     });
     let hello_message = types::HyperwalletMessage {
@@ -71,8 +72,11 @@ pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletCli
         }
     };
 
-    let supported_operations = match welcome_step {
-        types::HandshakeStep::ServerWelcome(server_welcome) => server_welcome.supported_operations,
+    let (server_version, supported_operations) = match welcome_step {
+        types::HandshakeStep::ServerWelcome(server_welcome) => (
+            server_welcome.server_version,
+            server_welcome.supported_operations,
+        ),
         _ => {
             return Err(HyperwalletClientError::ServerError(
                 types::OperationError::internal_error(
@@ -81,6 +85,19 @@ pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletCli
             ))
         }
     };
+
+    // Basic protocol version negotiation: require matching major version
+    let client_major = CLIENT_PROTOCOL_VERSION
+        .split('.')
+        .next()
+        .unwrap_or(CLIENT_PROTOCOL_VERSION);
+    let server_major = server_version.split('.').next().unwrap_or(&server_version);
+    if client_major != server_major {
+        return Err(HyperwalletClientError::VersionMismatch {
+            client: CLIENT_PROTOCOL_VERSION.to_string(),
+            server: server_version,
+        });
+    }
 
     for required_op in &config.required_operations {
         if !supported_operations.contains(required_op) {
@@ -120,14 +137,12 @@ pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletCli
 
     // Extract SessionInfo using pattern matching
     match complete_step {
-        types::HandshakeStep::Complete(complete_handshake) => {
-            Ok(types::SessionInfo {
-                server_version: "0.1.0".to_string(), //lol, server should send it's version
-                session_id: complete_handshake.session_id,
-                registered_permissions: complete_handshake.registered_permissions,
-                initial_chain_id: config.initial_chain_id,
-            })
-        }
+        types::HandshakeStep::Complete(complete_handshake) => Ok(types::SessionInfo {
+            server_version,
+            session_id: complete_handshake.session_id,
+            registered_permissions: complete_handshake.registered_permissions,
+            initial_chain_id: config.initial_chain_id,
+        }),
         _ => Err(HyperwalletClientError::ServerError(
             types::OperationError::internal_error(
                 "Expected Complete handshake step, received different step",

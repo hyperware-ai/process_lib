@@ -231,6 +231,46 @@ impl<'a> Deserialize<'a> for wit::HyperwalletRequest {
                         })?;
                         Ok(Handshake(step))
                     }
+                    "ImportWallet" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize ImportWalletRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(ImportWallet(req))
+                    }
+                    "DeleteWallet" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize DeleteWalletRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(DeleteWallet(req))
+                    }
+                    "RenameWallet" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize RenameWalletRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(RenameWallet(req))
+                    }
+                    "ExportWallet" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize ExportWalletRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(ExportWallet(req))
+                    }
                     "UnlockWallet" => {
                         let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
                         let req = serde_json::from_value(data).map_err(|e| {
@@ -262,6 +302,36 @@ impl<'a> Deserialize<'a> for wit::HyperwalletRequest {
                         })?;
                         Ok(GetWalletInfo(req))
                     }
+                    "SendEth" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize SendEthRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(SendEth(req))
+                    }
+                    "SendToken" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize SendTokenRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(SendToken(req))
+                    }
+                    "ApproveToken" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize ApproveTokenRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(ApproveToken(req))
+                    }
                     "GetBalance" => {
                         let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
                         let req = serde_json::from_value(data).map_err(|e| {
@@ -281,6 +351,67 @@ impl<'a> Deserialize<'a> for wit::HyperwalletRequest {
                             ))
                         })?;
                         Ok(GetTokenBalance(req))
+                    }
+                    "CallContract" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize CallContractRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(CallContract(req))
+                    }
+                    "SignTransaction" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize SignTransactionRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(SignTransaction(req))
+                    }
+                    "SignMessage" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize SignMessageRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(SignMessage(req))
+                    }
+                    "GetTransactionHistory" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize GetTransactionHistoryRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(GetTransactionHistory(req))
+                    }
+                    "EstimateGas" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize EstimateGasRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(EstimateGas(req))
+                    }
+                    "GetGasPrice" => Ok(GetGasPrice),
+                    "GetTransactionReceipt" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize GetTransactionReceiptRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(GetTransactionReceipt(req))
                     }
                     "BuildAndSignUserOperationForPayment" => {
                         let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
@@ -312,21 +443,189 @@ impl<'a> Deserialize<'a> for wit::HyperwalletRequest {
                         })?;
                         Ok(GetUserOperationReceipt(req))
                     }
+                    "BuildUserOperation" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize BuildUserOperationRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(BuildUserOperation(req))
+                    }
+                    "SignUserOperation" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize SignUserOperationRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(SignUserOperation(req))
+                    }
+                    "BuildAndSignUserOperation" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize BuildAndSignUserOperationRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(BuildAndSignUserOperation(req))
+                    }
+                    "EstimateUserOperationGas" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize EstimateUserOperationGasRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(EstimateUserOperationGas(req))
+                    }
+                    "ConfigurePaymaster" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize ConfigurePaymasterRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(ConfigurePaymaster(req))
+                    }
+                    "ExecuteViaTba" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize ExecuteViaTbaRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(ExecuteViaTba(req))
+                    }
+                    "CheckTbaOwnership" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize CheckTbaOwnershipRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(CheckTbaOwnership(req))
+                    }
+                    "SetupTbaDelegation" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize SetupTbaDelegationRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(SetupTbaDelegation(req))
+                    }
+                    "CreateNote" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize CreateNoteRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(CreateNote(req))
+                    }
+                    "ReadNote" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize ReadNoteRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(ReadNote(req))
+                    }
+                    "ResolveIdentity" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize ResolveIdentityRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(ResolveIdentity(req))
+                    }
+                    "SetupDelegation" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize SetupDelegationRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(SetupDelegation(req))
+                    }
+                    "VerifyDelegation" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize VerifyDelegationRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(VerifyDelegation(req))
+                    }
+                    "MintEntry" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize MintEntryRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(MintEntry(req))
+                    }
                     _ => {
                         // For unimplemented variants, return an error with helpful message
                         Err(de::Error::unknown_variant(
                             &variant_type,
                             &[
                                 "Handshake",
+                                "ImportWallet",
+                                "DeleteWallet",
+                                "RenameWallet",
+                                "ExportWallet",
                                 "UnlockWallet",
                                 "CreateWallet",
                                 "ListWallets",
                                 "GetWalletInfo",
+                                "SendEth",
+                                "SendToken",
+                                "ApproveToken",
                                 "GetBalance",
                                 "GetTokenBalance",
+                                "CallContract",
+                                "SignTransaction",
+                                "SignMessage",
+                                "GetTransactionHistory",
+                                "EstimateGas",
+                                "GetGasPrice",
+                                "GetTransactionReceipt",
                                 "BuildAndSignUserOperationForPayment",
                                 "SubmitUserOperation",
                                 "GetUserOperationReceipt",
+                                "BuildUserOperation",
+                                "SignUserOperation",
+                                "BuildAndSignUserOperation",
+                                "EstimateUserOperationGas",
+                                "ConfigurePaymaster",
+                                "ExecuteViaTba",
+                                "CheckTbaOwnership",
+                                "SetupTbaDelegation",
+                                "CreateNote",
+                                "ReadNote",
+                                "ResolveIdentity",
+                                "SetupDelegation",
+                                "VerifyDelegation",
+                                "MintEntry",
                             ],
                         ))
                     }
@@ -483,6 +782,36 @@ impl<'a> Deserialize<'a> for wit::HyperwalletResponseData {
                         })?;
                         Ok(Handshake(step))
                     }
+                    "ImportWallet" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize ImportWalletResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(ImportWallet(response))
+                    }
+                    "DeleteWallet" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize DeleteWalletResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(DeleteWallet(response))
+                    }
+                    "ExportWallet" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize ExportWalletResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(ExportWallet(response))
+                    }
                     "ListWallets" => {
                         let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
                         let response = serde_json::from_value(data).map_err(|e| {
@@ -522,6 +851,26 @@ impl<'a> Deserialize<'a> for wit::HyperwalletResponseData {
                             ))
                         })?;
                         Ok(UnlockWallet(response))
+                    }
+                    "SendEth" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize SendEthResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(SendEth(response))
+                    }
+                    "SendToken" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize SendTokenResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(SendToken(response))
                     }
                     "BuildAndSignUserOperationForPayment" => {
                         let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
@@ -573,21 +922,59 @@ impl<'a> Deserialize<'a> for wit::HyperwalletResponseData {
                         })?;
                         Ok(GetTokenBalance(response))
                     }
+                    "CreateNote" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize CreateNoteResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(CreateNote(response))
+                    }
+                    "ExecuteViaTba" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize ExecuteViaTbaResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(ExecuteViaTba(response))
+                    }
+                    "CheckTbaOwnership" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize CheckTbaOwnershipResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(CheckTbaOwnership(response))
+                    }
                     _ => {
                         // For unimplemented variants, return an error with helpful message
                         Err(de::Error::unknown_variant(
                             &variant_type,
                             &[
                                 "Handshake",
+                                "ImportWallet",
+                                "DeleteWallet",
+                                "ExportWallet",
                                 "ListWallets",
                                 "GetWalletInfo",
                                 "CreateWallet",
                                 "UnlockWallet",
+                                "SendEth",
+                                "SendToken",
                                 "BuildAndSignUserOperationForPayment",
                                 "SubmitUserOperation",
                                 "GetUserOperationReceipt",
                                 "GetBalance",
                                 "GetTokenBalance",
+                                "CreateNote",
+                                "ExecuteViaTba",
+                                "CheckTbaOwnership",
                             ],
                         ))
                     }

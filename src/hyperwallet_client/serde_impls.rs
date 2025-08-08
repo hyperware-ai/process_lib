@@ -240,7 +240,8 @@ impl<'a> Deserialize<'a> for wit::OperationError {
                             if details.is_some() {
                                 return Err(de::Error::duplicate_field("details"));
                             }
-                            details = Some(map.next_value()?);
+                            // Accept Option<String>: null -> None
+                            details = map.next_value()?;
                         }
                     }
                 }
