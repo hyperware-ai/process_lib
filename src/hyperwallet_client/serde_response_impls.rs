@@ -6,6 +6,36 @@ use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 
 // ============== REQUEST TYPES ==============
+// SetWalletLimitsRequest
+impl Serialize for wit::SetWalletLimitsRequest {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("SetWalletLimitsRequest", 2)?;
+        state.serialize_field("wallet_id", &self.wallet_id)?;
+        state.serialize_field("limits", &self.limits)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for wit::SetWalletLimitsRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper {
+            wallet_id: String,
+            limits: wit::WalletSpendingLimits,
+        }
+        let h = Helper::deserialize(deserializer)?;
+        Ok(wit::SetWalletLimitsRequest {
+            wallet_id: h.wallet_id,
+            limits: h.limits,
+        })
+    }
+}
 
 // ImportWalletRequest
 impl Serialize for wit::ImportWalletRequest {
@@ -405,6 +435,39 @@ impl<'de> Deserialize<'de> for wit::GetUserOperationReceiptRequest {
 }
 
 // ============== RESPONSE TYPES ==============
+// SetWalletLimitsResponse
+impl Serialize for wit::SetWalletLimitsResponse {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("SetWalletLimitsResponse", 3)?;
+        state.serialize_field("success", &self.success)?;
+        state.serialize_field("wallet_id", &self.wallet_id)?;
+        state.serialize_field("message", &self.message)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for wit::SetWalletLimitsResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper {
+            success: bool,
+            wallet_id: String,
+            message: String,
+        }
+        let h = Helper::deserialize(deserializer)?;
+        Ok(wit::SetWalletLimitsResponse {
+            success: h.success,
+            wallet_id: h.wallet_id,
+            message: h.message,
+        })
+    }
+}
 
 // CreateWalletResponse
 impl Serialize for wit::CreateWalletResponse {

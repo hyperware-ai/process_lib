@@ -165,6 +165,7 @@ interface hyperwallet {
         export-wallet(export-wallet-request),
         list-wallets,
         get-wallet-info(get-wallet-info-request),
+        set-wallet-limits(set-wallet-limits-request),
 
         // Ethereum Operations
         send-eth(send-eth-request),
@@ -256,6 +257,7 @@ interface hyperwallet {
         get-wallet-info(get-wallet-info-response),
         get-balance(get-balance-response),
         get-token-balance(get-token-balance-response),
+        set-wallet-limits(set-wallet-limits-response),
 
         // Transactions
         send-eth(send-eth-response),
@@ -309,6 +311,12 @@ interface hyperwallet {
 
     record get-wallet-info-request {
         wallet-id: string,
+    }
+
+    /// Set wallet-level spending limits
+    record set-wallet-limits-request {
+        wallet-id: string,
+        limits: wallet-spending-limits,
     }
 
     record get-balance-request {
@@ -539,6 +547,13 @@ interface hyperwallet {
         process: string,
         wallets: list<wallet>,
         total: u64,
+    }
+
+    /// Response for setting wallet limits
+    record set-wallet-limits-response {
+        success: bool,
+        wallet-id: string,
+        message: string,
     }
 
     record wallet {

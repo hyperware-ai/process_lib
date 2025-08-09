@@ -44,14 +44,19 @@ pub use wit::{
     CheckTbaOwnershipRequest, ConfigurePaymasterRequest, CreateNoteRequest, EstimateGasRequest,
     EstimateUserOperationGasRequest, ExecuteViaTbaRequest, GetTransactionHistoryRequest,
     GetTransactionReceiptRequest, GetUserOperationReceiptRequest, MintEntryRequest,
-    ReadNoteRequest, ResolveIdentityRequest, SetupDelegationRequest, SetupTbaDelegationRequest,
-    SignMessageRequest, SignTransactionRequest, SignUserOperationRequest,
-    SubmitUserOperationRequest, UpdateSpendingLimitsRequest, VerifyDelegationRequest,
+    ReadNoteRequest, ResolveIdentityRequest, SetWalletLimitsRequest, SetupDelegationRequest,
+    SetupTbaDelegationRequest, SignMessageRequest, SignTransactionRequest,
+    SignUserOperationRequest, SubmitUserOperationRequest, UpdateSpendingLimitsRequest,
+    VerifyDelegationRequest,
 };
+
+// SetWalletLimits request/response types (wallet-level limits)
+// Not available in current WIT; requires WIT update to add request/response and variants.
 
 // Re-export response types
 pub use wit::{
-    BuildAndSignUserOperationResponse, CheckTbaOwnershipResponse, SubmitUserOperationResponse,
+    BuildAndSignUserOperationResponse, CheckTbaOwnershipResponse, SetWalletLimitsResponse,
+    SubmitUserOperationResponse,
 };
 
 // Type aliases for compatibility
@@ -305,6 +310,7 @@ pub fn operation_type(request: &HyperwalletRequest) -> Operation {
         HyperwalletRequest::BuildAndSignUserOperation(_) => Operation::BuildAndSignUserOperation,
         HyperwalletRequest::EstimateUserOperationGas(_) => Operation::EstimateUserOperationGas,
         HyperwalletRequest::ConfigurePaymaster(_) => Operation::ConfigurePaymaster,
+        HyperwalletRequest::SetWalletLimits(_) => Operation::SetWalletLimits,
 
         // Hypermap Operations
         HyperwalletRequest::ResolveIdentity(_) => Operation::ResolveIdentity,

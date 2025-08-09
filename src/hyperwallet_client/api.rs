@@ -2,8 +2,8 @@ use super::types::{
     self, Balance, BuildAndSignUserOperationForPaymentRequest, BuildAndSignUserOperationResponse,
     CreateWalletRequest, ExportWalletResponse, GetTokenBalanceResponse, HyperwalletMessage,
     HyperwalletRequest, ImportWalletRequest, ListWalletsResponse, PaymasterConfig,
-    RenameWalletRequest, SendEthRequest, SendTokenRequest, SessionId, TxReceipt,
-    UnlockWalletRequest, UserOperationReceiptResponse, Wallet,
+    RenameWalletRequest, SendEthRequest, SendTokenRequest, SessionId, SetWalletLimitsRequest,
+    SetWalletLimitsResponse, TxReceipt, UnlockWalletRequest, UserOperationReceiptResponse, Wallet,
 };
 use super::HyperwalletClientError;
 use crate::wallet;
@@ -203,6 +203,28 @@ pub fn rename_wallet(
                 types::OperationError::internal_error("Failed to rename wallet")
             }),
         ))
+    }
+}
+
+pub fn set_wallet_limits(
+    session_id: &SessionId,
+    wallet_id: &str,
+    limits: types::WalletSpendingLimits,
+) -> Result<SetWalletLimitsResponse, HyperwalletClientError> {
+    let message = build_message(
+        session_id,
+        HyperwalletRequest::SetWalletLimits(SetWalletLimitsRequest {
+            wallet_id: wallet_id.to_string(),
+            limits,
+        }),
+    );
+
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::SetWalletLimits(resp)) => Ok(resp),
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Missing SetWalletLimits response data"),
+        )),
     }
 }
 

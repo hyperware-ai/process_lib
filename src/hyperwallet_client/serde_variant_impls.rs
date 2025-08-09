@@ -173,6 +173,10 @@ impl Serialize for wit::HyperwalletRequest {
                 state.serialize_field("type", "MintEntry")?;
                 state.serialize_field("data", data)?;
             }
+            SetWalletLimits(data) => {
+                state.serialize_field("type", "SetWalletLimits")?;
+                state.serialize_field("data", data)?;
+            }
         }
 
         state.end()
@@ -442,6 +446,16 @@ impl<'a> Deserialize<'a> for wit::HyperwalletRequest {
                             ))
                         })?;
                         Ok(GetUserOperationReceipt(req))
+                    }
+                    "SetWalletLimits" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let req = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize SetWalletLimitsRequest: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(SetWalletLimits(req))
                     }
                     "BuildUserOperation" => {
                         let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
@@ -724,6 +738,10 @@ impl Serialize for wit::HyperwalletResponseData {
                 state.serialize_field("type", "CheckTbaOwnership")?;
                 state.serialize_field("data", data)?;
             }
+            SetWalletLimits(data) => {
+                state.serialize_field("type", "SetWalletLimits")?;
+                state.serialize_field("data", data)?;
+            }
         }
 
         state.end()
@@ -921,6 +939,16 @@ impl<'a> Deserialize<'a> for wit::HyperwalletResponseData {
                             ))
                         })?;
                         Ok(GetTokenBalance(response))
+                    }
+                    "SetWalletLimits" => {
+                        let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+                        let response = serde_json::from_value(data).map_err(|e| {
+                            de::Error::custom(format!(
+                                "Failed to deserialize SetWalletLimitsResponse: {}",
+                                e
+                            ))
+                        })?;
+                        Ok(SetWalletLimits(response))
                     }
                     "CreateNote" => {
                         let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
