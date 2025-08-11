@@ -11,6 +11,10 @@ use crate::hyperware::process::sign::{
 };
 use crate::{last_blob, Address, Request};
 
+#[cfg(feature = "hyperapp")]
+use crate::hyperapp;
+
+#[cfg(not(feature = "hyperapp"))]
 pub fn net_key_sign(message: Vec<u8>) -> anyhow::Result<Vec<u8>> {
     let response = Request::to(("our", "sign", "sign", "sys"))
         .body(serde_json::to_vec(&SignRequest::NetKeySign).unwrap())
@@ -27,6 +31,26 @@ pub fn net_key_sign(message: Vec<u8>) -> anyhow::Result<Vec<u8>> {
     Ok(last_blob().unwrap().bytes)
 }
 
+#[cfg(feature = "hyperapp")]
+pub async fn net_key_sign(message: Vec<u8>) -> anyhow::Result<Vec<u8>> {
+    let request = Request::to(("our", "sign", "sign", "sys"))
+        .body(serde_json::to_vec(&SignRequest::NetKeySign).unwrap())
+        .blob_bytes(message)
+        .expects_response(10);
+
+    let response_bytes = hyperapp::send::<Vec<u8>>(request).await?;
+
+    let SignResponse::NetKeySign = serde_json::from_slice(&response_bytes)? else {
+        return Err(anyhow::anyhow!(
+            "unexpected response from sign:sign:sys: {}",
+            String::from_utf8(response_bytes).unwrap_or_default(),
+        ));
+    };
+
+    Ok(last_blob().unwrap().bytes)
+}
+
+#[cfg(not(feature = "hyperapp"))]
 pub fn net_key_verify(
     message: Vec<u8>,
     signer: &Address,
@@ -47,6 +71,35 @@ pub fn net_key_verify(
         return Err(anyhow::anyhow!(
             "unexpected response from sign:sign:sys: {}",
             String::from_utf8(response.body().into()).unwrap_or_default(),
+        ));
+    };
+
+    Ok(response)
+}
+
+#[cfg(feature = "hyperapp")]
+pub async fn net_key_verify(
+    message: Vec<u8>,
+    signer: &Address,
+    signature: Vec<u8>,
+) -> anyhow::Result<bool> {
+    let request = Request::to(("our", "sign", "sign", "sys"))
+        .body(
+            serde_json::to_vec(&SignRequest::NetKeyVerify(NetKeyVerifyRequest {
+                node: signer.to_string(),
+                signature,
+            }))
+            .unwrap(),
+        )
+        .blob_bytes(message)
+        .expects_response(10);
+
+    let response_bytes = hyperapp::send::<Vec<u8>>(request).await?;
+
+    let SignResponse::NetKeyVerify(response) = serde_json::from_slice(&response_bytes)? else {
+        return Err(anyhow::anyhow!(
+            "unexpected response from sign:sign:sys: {}",
+            String::from_utf8(response_bytes).unwrap_or_default(),
         ));
     };
 
