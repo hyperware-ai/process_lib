@@ -1,4 +1,6 @@
-use crate::{Context, Message, Request, SendError};
+use crate::{Context, Request};
+#[cfg(not(feature = "hyperapp"))]
+use crate::{Message, SendError};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "hyperapp")]

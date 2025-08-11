@@ -38,12 +38,12 @@ pub async fn net_key_sign(message: Vec<u8>) -> anyhow::Result<Vec<u8>> {
         .blob_bytes(message)
         .expects_response(10);
 
-    let response_bytes = hyperapp::send::<Vec<u8>>(request).await?;
+    let response = hyperapp::send::<SignResponse>(request).await?;
 
-    let SignResponse::NetKeySign = serde_json::from_slice(&response_bytes)? else {
+    let SignResponse::NetKeySign = response else {
         return Err(anyhow::anyhow!(
-            "unexpected response from sign:sign:sys: {}",
-            String::from_utf8(response_bytes).unwrap_or_default(),
+            "unexpected response from sign:sign:sys: {:?}",
+            response,
         ));
     };
 
@@ -94,16 +94,16 @@ pub async fn net_key_verify(
         .blob_bytes(message)
         .expects_response(10);
 
-    let response_bytes = hyperapp::send::<Vec<u8>>(request).await?;
+    let response = hyperapp::send::<SignResponse>(request).await?;
 
-    let SignResponse::NetKeyVerify(response) = serde_json::from_slice(&response_bytes)? else {
+    let SignResponse::NetKeyVerify(verified) = response else {
         return Err(anyhow::anyhow!(
-            "unexpected response from sign:sign:sys: {}",
-            String::from_utf8(response_bytes).unwrap_or_default(),
+            "unexpected response from sign:sign:sys: {:?}",
+            response,
         ));
     };
 
-    Ok(response)
+    Ok(verified)
 }
 
 impl Serialize for NetKeyVerifyRequest {

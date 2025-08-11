@@ -1,5 +1,7 @@
 pub use super::server::{HttpResponse, WsMessageType};
-use crate::{get_blob, LazyLoadBlob as KiBlob, Message, Request as KiRequest};
+use crate::{get_blob, LazyLoadBlob as KiBlob, Request as KiRequest};
+#[cfg(not(feature = "hyperapp"))]
+use crate::Message;
 use http::Method;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -218,26 +220,18 @@ pub async fn send_request_await_response(
         .blob_bytes(body)
         .expects_response(timeout);
 
-    let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+    let resp_result = hyperapp::send::<std::result::Result<HttpClientResponse, HttpClientError>>(request)
         .await
         .map_err(|_| HttpClientError::ExecuteRequestFailed("http-client timed out".to_string()))?;
 
-    let resp = match serde_json::from_slice::<
-        std::result::Result<HttpClientResponse, HttpClientError>,
-    >(&resp_bytes)
-    {
-        Ok(Ok(HttpClientResponse::Http(resp))) => resp,
-        Ok(Ok(HttpClientResponse::WebSocketAck)) => {
+    let resp = match resp_result {
+        Ok(HttpClientResponse::Http(resp)) => resp,
+        Ok(HttpClientResponse::WebSocketAck) => {
             return Err(HttpClientError::ExecuteRequestFailed(
                 "http-client gave unexpected response".to_string(),
             ))
         }
-        Ok(Err(e)) => return Err(e),
-        Err(e) => {
-            return Err(HttpClientError::ExecuteRequestFailed(format!(
-                "http-client gave invalid response: {e:?}"
-            )))
-        }
+        Err(e) => return Err(e),
     };
     let mut http_response = http::Response::builder()
         .status(http::StatusCode::from_u16(resp.status).unwrap_or_default());
@@ -315,13 +309,13 @@ pub async fn open_ws_connection(
         )
         .expects_response(5);
 
-    let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+    let resp_result = hyperapp::send::<std::result::Result<HttpClientResponse, HttpClientError>>(request)
         .await
         .map_err(|_| HttpClientError::WsOpenFailed { url: url.clone() })?;
 
-    match serde_json::from_slice(&resp_bytes) {
-        Ok(Ok(HttpClientResponse::WebSocketAck)) => Ok(()),
-        Ok(Err(e)) => Err(e),
+    match resp_result {
+        Ok(HttpClientResponse::WebSocketAck) => Ok(()),
+        Err(e) => Err(e),
         _ => Err(HttpClientError::WsOpenFailed { url }),
     }
 }
@@ -360,13 +354,13 @@ pub async fn close_ws_connection(channel_id: u32) -> std::result::Result<(), Htt
         )
         .expects_response(5);
 
-    let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+    let resp_result = hyperapp::send::<std::result::Result<HttpClientResponse, HttpClientError>>(request)
         .await
         .map_err(|_| HttpClientError::WsCloseFailed { channel_id })?;
 
-    match serde_json::from_slice(&resp_bytes) {
-        Ok(Ok(HttpClientResponse::WebSocketAck)) => Ok(()),
-        Ok(Err(e)) => Err(e),
+    match resp_result {
+        Ok(HttpClientResponse::WebSocketAck) => Ok(()),
+        Err(e) => Err(e),
         _ => Err(HttpClientError::WsCloseFailed { channel_id }),
     }
 }

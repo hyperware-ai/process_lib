@@ -1,6 +1,6 @@
 use crate::{
     get_blob, 
-    kv::{Kv, KvAction, KvError, KvRequest, KvResponse},
+    kv::{Kv, KvAction, KvRequest, KvResponse},
     Message, PackageId, Request,
 };
 use serde::{de::DeserializeOwned, Serialize};

@@ -4,8 +4,13 @@ use thiserror::Error;
 
 #[cfg(not(feature = "hyperapp"))]
 mod sqlite_sync;
+#[cfg(not(feature = "hyperapp"))]
+pub use sqlite_sync::{open, remove_db};
+
 #[cfg(feature = "hyperapp")]
 mod sqlite_async;
+#[cfg(feature = "hyperapp")]
+pub use sqlite_async::{open, remove_db};
 
 /// Actions are sent to a specific SQLite database. `db` is the name,
 /// `package_id` is the [`PackageId`] that created the database. Capabilities

@@ -1,4 +1,6 @@
-use crate::{get_blob, Address, NodeId, Request, SendError};
+use crate::{get_blob, Address, NodeId, Request};
+#[cfg(not(feature = "hyperapp"))]
+use crate::SendError;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -209,7 +211,7 @@ where
         .blob_bytes(message.into())
         .expects_response(30);
 
-    hyperapp::send_rmp::<Vec<u8>>(request).await?;
+    let _response = hyperapp::send_rmp::<NetResponse>(request).await?;
     Ok(get_blob().unwrap().bytes)
 }
 
@@ -277,10 +279,8 @@ where
         .blob_bytes(message.into())
         .expects_response(30);
 
-    let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request).await?;
-    let Ok(NetResponse::Verified(valid)) =
-        rmp_serde::from_slice::<NetResponse>(&resp_bytes)
-    else {
+    let response = hyperapp::send_rmp::<NetResponse>(request).await?;
+    let NetResponse::Verified(valid) = response else {
         return Ok(false);
     };
     Ok(valid)
@@ -337,13 +337,9 @@ where
         )
         .expects_response(timeout.unwrap_or(30));
 
-    let resp_bytes = hyperapp::send::<Vec<u8>>(request).await.ok()?;
+    let response = hyperapp::send::<IndexerResponses>(request).await.ok()?;
 
-    let Ok(IndexerResponses::Name(maybe_name)) =
-        serde_json::from_slice::<IndexerResponses>(&resp_bytes)
-    else {
-        return None;
-    };
+    let IndexerResponses::Name(maybe_name) = response;
 
     maybe_name
 }

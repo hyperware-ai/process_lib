@@ -1,7 +1,6 @@
 use crate::{
     hyperapp,
-    vfs::{vfs_request, VfsAction, VfsError, VfsResponse, parse_response},
-    Request,
+    vfs::{vfs_request, VfsAction, VfsError, VfsResponse},
 };
 
 /// Removes a file at path, errors if path not found or path is not a file.

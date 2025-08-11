@@ -51,9 +51,7 @@ impl HttpServer {
             None => req,
         };
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(req).await.map_err(|_| HttpServerError::Timeout)?;
-        let resp = serde_json::from_slice::<Result<(), HttpServerError>>(&resp_bytes)
-            .map_err(|_| HttpServerError::UnexpectedResponse)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             self.http_paths.insert(path, config);
@@ -87,9 +85,7 @@ impl HttpServer {
             })
             .expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(req).await.map_err(|_| HttpServerError::Timeout)?;
-        let resp = serde_json::from_slice::<Result<(), HttpServerError>>(&resp_bytes)
-            .map_err(|_| HttpServerError::UnexpectedResponse)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             self.ws_paths.insert(path, config);
@@ -125,9 +121,7 @@ impl HttpServer {
             })
             .expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(req).await.map_err(|_| HttpServerError::Timeout)?;
-        let resp = serde_json::from_slice::<Result<(), HttpServerError>>(&resp_bytes)
-            .map_err(|_| HttpServerError::UnexpectedResponse)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             self.http_paths.insert(
@@ -161,9 +155,7 @@ impl HttpServer {
             )
             .expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(req).await.map_err(|_| HttpServerError::Timeout)?;
-        let resp = serde_json::from_slice::<Result<(), HttpServerError>>(&resp_bytes)
-            .map_err(|_| HttpServerError::UnexpectedResponse)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             self.http_paths.insert(
@@ -194,9 +186,7 @@ impl HttpServer {
             )
             .expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(req).await.map_err(|_| HttpServerError::Timeout)?;
-        let resp = serde_json::from_slice::<Result<(), HttpServerError>>(&resp_bytes)
-            .map_err(|_| HttpServerError::UnexpectedResponse)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             self.ws_paths.insert(
@@ -235,9 +225,7 @@ impl HttpServer {
             )
             .expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(req).await.map_err(|_| HttpServerError::Timeout)?;
-        let resp = serde_json::from_slice::<Result<(), HttpServerError>>(&resp_bytes)
-            .map_err(|_| HttpServerError::UnexpectedResponse)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             entry.authenticated = config.authenticated;
@@ -274,9 +262,7 @@ impl HttpServer {
             })
             .expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(req).await.map_err(|_| HttpServerError::Timeout)?;
-        let resp = serde_json::from_slice::<Result<(), HttpServerError>>(&resp_bytes)
-            .map_err(|_| HttpServerError::UnexpectedResponse)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             entry.authenticated = config.authenticated;
@@ -295,9 +281,7 @@ impl HttpServer {
             .body(serde_json::to_vec(&HttpServerAction::Unbind { path: path.clone() }).unwrap())
             .expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(req).await.map_err(|_| HttpServerError::Timeout)?;
-        let resp = serde_json::from_slice::<Result<(), HttpServerError>>(&resp_bytes)
-            .map_err(|_| HttpServerError::UnexpectedResponse)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             self.http_paths.remove(&path);
@@ -317,9 +301,7 @@ impl HttpServer {
             )
             .expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(req).await.map_err(|_| HttpServerError::Timeout)?;
-        let resp = serde_json::from_slice::<Result<(), HttpServerError>>(&resp_bytes)
-            .map_err(|_| HttpServerError::UnexpectedResponse)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             self.ws_paths.remove(&path);
@@ -333,7 +315,7 @@ impl HttpServer {
         paths: Vec<&str>,
         config: HttpBindingConfig,
     ) -> Result<(), HttpServerError> {
-        use crate::vfs::{VfsAction, VfsRequest};
+        use crate::vfs::{VfsAction, VfsRequest, VfsResponse};
         use crate::get_blob;
         
         let our = crate::our();
@@ -351,7 +333,7 @@ impl HttpServer {
             )
             .expects_response(self.timeout);
 
-        let _res = hyperapp::send_rmp::<Vec<u8>>(req).await.map_err(|_| HttpServerError::Timeout)?;
+        let _res = hyperapp::send::<VfsResponse>(req).await.map_err(|_| HttpServerError::Timeout)?;
 
         let Some(mut blob) = get_blob() else {
             return Err(HttpServerError::NoBlob);
@@ -373,7 +355,7 @@ impl HttpServer {
         paths: Vec<&str>,
         config: HttpBindingConfig,
     ) -> Result<(), HttpServerError> {
-        use crate::vfs::{VfsAction, VfsRequest};
+        use crate::vfs::{VfsAction, VfsRequest, VfsResponse};
         use crate::get_blob;
         
         let req = KiRequest::to(("our", "vfs", "distro", "sys"))
@@ -386,7 +368,7 @@ impl HttpServer {
             )
             .expects_response(self.timeout);
 
-        let _res = hyperapp::send_rmp::<Vec<u8>>(req).await.map_err(|_| HttpServerError::Timeout)?;
+        let _res = hyperapp::send::<VfsResponse>(req).await.map_err(|_| HttpServerError::Timeout)?;
 
         let Some(mut blob) = get_blob() else {
             return Err(HttpServerError::NoBlob);
@@ -428,9 +410,7 @@ impl HttpServer {
                 )
                 .expects_response(self.timeout);
 
-            let directory_response = hyperapp::send_rmp::<Vec<u8>>(req).await.map_err(|_| HttpServerError::Timeout)?;
-            let directory_body = serde_json::from_slice::<VfsResponse>(&directory_response)
-                .map_err(|_e| HttpServerError::UnexpectedResponse)?;
+            let directory_body = hyperapp::send::<VfsResponse>(req).await.map_err(|_| HttpServerError::Timeout)?;
 
             let VfsResponse::ReadDir(directory_info) = directory_body else {
                 return Err(HttpServerError::UnexpectedResponse);
@@ -481,9 +461,7 @@ impl HttpServer {
                 )
                 .expects_response(self.timeout);
 
-            let directory_response = hyperapp::send_rmp::<Vec<u8>>(req).await.map_err(|_| HttpServerError::Timeout)?;
-            let directory_body = serde_json::from_slice::<VfsResponse>(&directory_response)
-                .map_err(|_e| HttpServerError::UnexpectedResponse)?;
+            let directory_body = hyperapp::send::<VfsResponse>(req).await.map_err(|_| HttpServerError::Timeout)?;
 
             let VfsResponse::ReadDir(directory_info) = directory_body else {
                 return Err(HttpServerError::UnexpectedResponse);

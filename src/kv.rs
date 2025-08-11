@@ -1,12 +1,17 @@
 use crate::PackageId;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use thiserror::Error;
 
 #[cfg(not(feature = "hyperapp"))]
 mod kv_sync;
+#[cfg(not(feature = "hyperapp"))]
+pub use kv_sync::{open, open_raw, remove_db};
+
 #[cfg(feature = "hyperapp")]
 mod kv_async;
+#[cfg(feature = "hyperapp")]
+pub use kv_async::{open, open_raw, remove_db};
 
 /// Actions are sent to a specific key value database. `db` is the name,
 /// `package_id` is the [`PackageId`] that created the database. Capabilities
