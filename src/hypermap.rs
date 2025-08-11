@@ -1535,7 +1535,7 @@ impl Serialize for CacherRequest {
     where
         S: Serializer,
     {
-        print_to_terminal(0,"GitMAAAAAAAAAAH");
+        print_to_terminal(0, "GitMAAAAAAAAAAH");
         match self {
             CacherRequest::GetManifest => serializer.serialize_str("GetManifest"),
             CacherRequest::GetLogCacheContent(path) => {
@@ -1550,13 +1550,13 @@ impl Serialize for CacherRequest {
                 map.end()
             }
             CacherRequest::StartProviding => {
-                print_to_terminal(0,"GitSTAAAAAAAAAAH");
+                print_to_terminal(0, "GitSTAAAAAAAAAAH");
                 serializer.serialize_str("StartProviding")
-            },
+            }
             CacherRequest::StopProviding => {
-                print_to_terminal(0,"GitSTOAAAAAAAAAH");
+                print_to_terminal(0, "GitSTOAAAAAAAAAH");
                 serializer.serialize_str("StopProviding")
-            },
+            }
             CacherRequest::SetNodes(nodes) => {
                 let mut map = serializer.serialize_map(Some(1))?;
                 map.serialize_entry("SetNodes", nodes)?;

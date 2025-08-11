@@ -1,5 +1,7 @@
 use crate::{
-    our_capabilities, print_to_terminal, Address, Capability, LazyLoadBlob, Message, SendError, _wit_message_to_message, _wit_send_error_to_send_error, types::message::BuildError};
+    our_capabilities, print_to_terminal, Address, Capability, LazyLoadBlob, Message, SendError,
+    _wit_message_to_message, _wit_send_error_to_send_error, types::message::BuildError,
+};
 
 /// `Request` builder. Use [`Request::new()`] or [`Request::to()`] to start a request,
 /// then build it, then call [`Request::send()`] on it to fire.
@@ -289,7 +291,7 @@ impl Request {
         self,
         timeout: u64,
     ) -> Result<Result<Message, SendError>, BuildError> {
-        print_to_terminal(0,"GitRAAAAAAAAAAH");
+        print_to_terminal(0, "GitRAAAAAAAAAAH");
         let Some(target) = self.target else {
             return Err(BuildError::NoTarget);
         };
