@@ -149,8 +149,9 @@ pub async fn metadata(path: &str, timeout: Option<u64>) -> Result<FileMetadata, 
     let timeout = timeout.unwrap_or(5);
 
     let request = vfs_request(path, VfsAction::Metadata).expects_response(timeout);
-    
-    let response = crate::hyperapp::send::<VfsResponse>(request).await
+
+    let response = crate::hyperapp::send::<VfsResponse>(request)
+        .await
         .map_err(|_| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
     match response {

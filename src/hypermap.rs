@@ -1120,7 +1120,8 @@ impl Hypermap {
             hashed_data.to_vec(),
             &log_cache.metadata.created_by.parse::<HyperAddress>()?,
             signature_bytes,
-        ).await?)
+        )
+        .await?)
     }
 
     #[cfg(not(feature = "hyperapp"))]
@@ -1342,7 +1343,8 @@ impl Hypermap {
                 from_block, filters, retry_params, chain,
             ),
         );
-        let (block, consolidated_logs) = self.get_bootstrap(from_block, retry_params, chain).await?;
+        let (block, consolidated_logs) =
+            self.get_bootstrap(from_block, retry_params, chain).await?;
 
         if consolidated_logs.is_empty() {
             print_to_terminal(2,"bootstrap: No logs retrieved after consolidation. Returning empty results for filters.");

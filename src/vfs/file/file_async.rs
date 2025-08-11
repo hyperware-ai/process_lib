@@ -8,8 +8,10 @@ pub async fn remove_file_async(path: &str, timeout: Option<u64>) -> Result<(), V
     let timeout = timeout.unwrap_or(5);
 
     let request = vfs_request(path, VfsAction::RemoveFile).expects_response(timeout);
-    
-    let response = hyperapp::send::<VfsResponse>(request).await.map_err(|_| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+
+    let response = hyperapp::send::<VfsResponse>(request)
+        .await
+        .map_err(|_| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
     match response {
         VfsResponse::Ok => Ok(()),

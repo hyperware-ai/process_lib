@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
-#[cfg(not(feature = "hyperapp"))]
-mod server_sync;
 #[cfg(feature = "hyperapp")]
 mod server_async;
+#[cfg(not(feature = "hyperapp"))]
+mod server_sync;
 
 /// [`crate::Request`] received from the `http-server:distro:sys` service as a
 /// result of either an HTTP or WebSocket binding, created via [`HttpServerAction`].
@@ -444,7 +444,6 @@ impl WsBindingConfig {
         self
     }
 }
-
 
 /// Send an HTTP response to an incoming HTTP request ([`HttpServerRequest::Http`]).
 pub fn send_response(status: StatusCode, headers: Option<HashMap<String, String>>, body: Vec<u8>) {

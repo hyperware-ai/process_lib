@@ -1,6 +1,6 @@
-use crate::{get_blob, Address, NodeId, Request};
 #[cfg(not(feature = "hyperapp"))]
 use crate::SendError;
+use crate::{get_blob, Address, NodeId, Request};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -262,7 +262,11 @@ where
 /// This function uses a 30-second timeout to reach `net:distro:sys`. If more
 /// control over the timeout is needed, create a [`Request`] directly.
 #[cfg(feature = "hyperapp")]
-pub async fn verify<T, U, V>(from: T, message: U, signature: V) -> Result<bool, hyperapp::AppSendError>
+pub async fn verify<T, U, V>(
+    from: T,
+    message: U,
+    signature: V,
+) -> Result<bool, hyperapp::AppSendError>
 where
     T: Into<Address>,
     U: Into<Vec<u8>>,

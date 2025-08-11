@@ -1,7 +1,6 @@
 use crate::{
     http::server::{
-        HttpBindingConfig, HttpServer, HttpServerAction, HttpServerError,
-        WsBindingConfig,
+        HttpBindingConfig, HttpServer, HttpServerAction, HttpServerError, WsBindingConfig,
     },
     hyperapp, LazyLoadBlob as KiBlob, Request as KiRequest,
 };
@@ -51,7 +50,9 @@ impl HttpServer {
             None => req,
         };
 
-        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req)
+            .await
+            .map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             self.http_paths.insert(path, config);
@@ -85,7 +86,9 @@ impl HttpServer {
             })
             .expects_response(self.timeout);
 
-        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req)
+            .await
+            .map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             self.ws_paths.insert(path, config);
@@ -121,7 +124,9 @@ impl HttpServer {
             })
             .expects_response(self.timeout);
 
-        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req)
+            .await
+            .map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             self.http_paths.insert(
@@ -155,7 +160,9 @@ impl HttpServer {
             )
             .expects_response(self.timeout);
 
-        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req)
+            .await
+            .map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             self.http_paths.insert(
@@ -186,7 +193,9 @@ impl HttpServer {
             )
             .expects_response(self.timeout);
 
-        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req)
+            .await
+            .map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             self.ws_paths.insert(
@@ -225,7 +234,9 @@ impl HttpServer {
             )
             .expects_response(self.timeout);
 
-        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req)
+            .await
+            .map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             entry.authenticated = config.authenticated;
@@ -262,7 +273,9 @@ impl HttpServer {
             })
             .expects_response(self.timeout);
 
-        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req)
+            .await
+            .map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             entry.authenticated = config.authenticated;
@@ -281,7 +294,9 @@ impl HttpServer {
             .body(serde_json::to_vec(&HttpServerAction::Unbind { path: path.clone() }).unwrap())
             .expects_response(self.timeout);
 
-        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req)
+            .await
+            .map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             self.http_paths.remove(&path);
@@ -301,7 +316,9 @@ impl HttpServer {
             )
             .expects_response(self.timeout);
 
-        let resp = hyperapp::send::<Result<(), HttpServerError>>(req).await.map_err(|_| HttpServerError::Timeout)?;
+        let resp = hyperapp::send::<Result<(), HttpServerError>>(req)
+            .await
+            .map_err(|_| HttpServerError::Timeout)?;
 
         if resp.is_ok() {
             self.ws_paths.remove(&path);
@@ -315,9 +332,9 @@ impl HttpServer {
         paths: Vec<&str>,
         config: HttpBindingConfig,
     ) -> Result<(), HttpServerError> {
-        use crate::vfs::{VfsAction, VfsRequest, VfsResponse};
         use crate::get_blob;
-        
+        use crate::vfs::{VfsAction, VfsRequest, VfsResponse};
+
         let our = crate::our();
         let req = KiRequest::to(("our", "vfs", "distro", "sys"))
             .body(
@@ -333,7 +350,9 @@ impl HttpServer {
             )
             .expects_response(self.timeout);
 
-        let _res = hyperapp::send::<VfsResponse>(req).await.map_err(|_| HttpServerError::Timeout)?;
+        let _res = hyperapp::send::<VfsResponse>(req)
+            .await
+            .map_err(|_| HttpServerError::Timeout)?;
 
         let Some(mut blob) = get_blob() else {
             return Err(HttpServerError::NoBlob);
@@ -343,7 +362,8 @@ impl HttpServer {
         blob.mime = Some(content_type);
 
         for path in paths {
-            self.bind_http_path(path, config.clone().static_content(Some(blob.clone()))).await?;
+            self.bind_http_path(path, config.clone().static_content(Some(blob.clone())))
+                .await?;
         }
 
         Ok(())
@@ -355,9 +375,9 @@ impl HttpServer {
         paths: Vec<&str>,
         config: HttpBindingConfig,
     ) -> Result<(), HttpServerError> {
-        use crate::vfs::{VfsAction, VfsRequest, VfsResponse};
         use crate::get_blob;
-        
+        use crate::vfs::{VfsAction, VfsRequest, VfsResponse};
+
         let req = KiRequest::to(("our", "vfs", "distro", "sys"))
             .body(
                 serde_json::to_vec(&VfsRequest {
@@ -368,7 +388,9 @@ impl HttpServer {
             )
             .expects_response(self.timeout);
 
-        let _res = hyperapp::send::<VfsResponse>(req).await.map_err(|_| HttpServerError::Timeout)?;
+        let _res = hyperapp::send::<VfsResponse>(req)
+            .await
+            .map_err(|_| HttpServerError::Timeout)?;
 
         let Some(mut blob) = get_blob() else {
             return Err(HttpServerError::NoBlob);
@@ -378,12 +400,12 @@ impl HttpServer {
         blob.mime = Some(content_type);
 
         for path in paths {
-            self.bind_http_path(path, config.clone().static_content(Some(blob.clone()))).await?;
+            self.bind_http_path(path, config.clone().static_content(Some(blob.clone())))
+                .await?;
         }
 
         Ok(())
     }
-
 
     pub async fn serve_ui(
         &mut self,
@@ -410,7 +432,9 @@ impl HttpServer {
                 )
                 .expects_response(self.timeout);
 
-            let directory_body = hyperapp::send::<VfsResponse>(req).await.map_err(|_| HttpServerError::Timeout)?;
+            let directory_body = hyperapp::send::<VfsResponse>(req)
+                .await
+                .map_err(|_| HttpServerError::Timeout)?;
 
             let VfsResponse::ReadDir(directory_info) = directory_body else {
                 return Err(HttpServerError::UnexpectedResponse);
@@ -425,11 +449,17 @@ impl HttpServer {
                         let relative_path = entry.path.replace(&initial_path, "");
                         let is_index = entry.path.ends_with("index.html");
 
-                        self.serve_file_raw_path(&entry.path, vec![relative_path.as_str()], config.clone()).await?;
+                        self.serve_file_raw_path(
+                            &entry.path,
+                            vec![relative_path.as_str()],
+                            config.clone(),
+                        )
+                        .await?;
 
                         if is_index {
                             for root in &roots {
-                                self.serve_file_raw_path(&entry.path, vec![root], config.clone()).await?;
+                                self.serve_file_raw_path(&entry.path, vec![root], config.clone())
+                                    .await?;
                             }
                         }
                     }
@@ -441,7 +471,11 @@ impl HttpServer {
         Ok(())
     }
 
-    pub async fn unserve_ui(&mut self, directory: &str, roots: Vec<&str>) -> Result<(), HttpServerError> {
+    pub async fn unserve_ui(
+        &mut self,
+        directory: &str,
+        roots: Vec<&str>,
+    ) -> Result<(), HttpServerError> {
         use crate::vfs::{FileType, VfsAction, VfsRequest, VfsResponse};
 
         let our = crate::our();
@@ -461,7 +495,9 @@ impl HttpServer {
                 )
                 .expects_response(self.timeout);
 
-            let directory_body = hyperapp::send::<VfsResponse>(req).await.map_err(|_| HttpServerError::Timeout)?;
+            let directory_body = hyperapp::send::<VfsResponse>(req)
+                .await
+                .map_err(|_| HttpServerError::Timeout)?;
 
             let VfsResponse::ReadDir(directory_info) = directory_body else {
                 return Err(HttpServerError::UnexpectedResponse);
@@ -520,5 +556,6 @@ fn get_mime_type(path: &str) -> String {
         "ico" => "image/x-icon",
         "wasm" => "application/wasm",
         _ => "application/octet-stream",
-    }.to_string()
+    }
+    .to_string()
 }

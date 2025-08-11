@@ -1,5 +1,5 @@
 use crate::{
-    get_blob, 
+    get_blob,
     sqlite::{Sqlite, SqliteAction, SqliteError, SqliteRequest, SqliteResponse},
     Message, PackageId, Request,
 };

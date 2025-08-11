@@ -27,14 +27,16 @@ impl Sqlite {
         match response {
             SqliteResponse::Read => {
                 let blob = get_blob().ok_or_else(|| SqliteError::MalformedRequest)?;
-                let values = serde_json::from_slice::<
-                    Vec<HashMap<String, serde_json::Value>>,
-                >(&blob.bytes)
-                .map_err(|_| SqliteError::MalformedRequest)?;
+                let values =
+                    serde_json::from_slice::<Vec<HashMap<String, serde_json::Value>>>(&blob.bytes)
+                        .map_err(|_| SqliteError::MalformedRequest)?;
                 Ok(values)
             }
             SqliteResponse::Err(error) => Err(error.into()),
-            _ => Err(anyhow::anyhow!("sqlite: unexpected response {:?}", response)),
+            _ => Err(anyhow::anyhow!(
+                "sqlite: unexpected response {:?}",
+                response
+            )),
         }
     }
 
@@ -60,7 +62,10 @@ impl Sqlite {
         match response {
             SqliteResponse::Ok => Ok(()),
             SqliteResponse::Err(error) => Err(error.into()),
-            _ => Err(anyhow::anyhow!("sqlite: unexpected response {:?}", response)),
+            _ => Err(anyhow::anyhow!(
+                "sqlite: unexpected response {:?}",
+                response
+            )),
         }
     }
 
@@ -80,7 +85,10 @@ impl Sqlite {
         match response {
             SqliteResponse::BeginTx { tx_id } => Ok(tx_id),
             SqliteResponse::Err(error) => Err(error.into()),
-            _ => Err(anyhow::anyhow!("sqlite: unexpected response {:?}", response)),
+            _ => Err(anyhow::anyhow!(
+                "sqlite: unexpected response {:?}",
+                response
+            )),
         }
     }
 
@@ -100,7 +108,10 @@ impl Sqlite {
         match response {
             SqliteResponse::Ok => Ok(()),
             SqliteResponse::Err(error) => Err(error.into()),
-            _ => Err(anyhow::anyhow!("sqlite: unexpected response {:?}", response)),
+            _ => Err(anyhow::anyhow!(
+                "sqlite: unexpected response {:?}",
+                response
+            )),
         }
     }
 }
@@ -127,12 +138,19 @@ pub async fn open(package_id: PackageId, db: &str, timeout: Option<u64>) -> anyh
             timeout,
         }),
         SqliteResponse::Err(error) => Err(error.into()),
-        _ => Err(anyhow::anyhow!("sqlite: unexpected response {:?}", response)),
+        _ => Err(anyhow::anyhow!(
+            "sqlite: unexpected response {:?}",
+            response
+        )),
     }
 }
 
 /// Remove and delete sqlite database.
-pub async fn remove_db(package_id: PackageId, db: &str, timeout: Option<u64>) -> anyhow::Result<()> {
+pub async fn remove_db(
+    package_id: PackageId,
+    db: &str,
+    timeout: Option<u64>,
+) -> anyhow::Result<()> {
     let timeout = timeout.unwrap_or(5);
 
     let request = Request::new()
@@ -149,6 +167,9 @@ pub async fn remove_db(package_id: PackageId, db: &str, timeout: Option<u64>) ->
     match response {
         SqliteResponse::Ok => Ok(()),
         SqliteResponse::Err(error) => Err(error.into()),
-        _ => Err(anyhow::anyhow!("sqlite: unexpected response {:?}", response)),
+        _ => Err(anyhow::anyhow!(
+            "sqlite: unexpected response {:?}",
+            response
+        )),
     }
 }

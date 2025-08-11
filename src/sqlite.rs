@@ -185,4 +185,3 @@ pub struct Sqlite {
     pub db: String,
     pub timeout: u64,
 }
-

@@ -188,7 +188,11 @@ where
 }
 
 /// Removes and deletes a kv db.
-pub async fn remove_db(package_id: PackageId, db: &str, timeout: Option<u64>) -> anyhow::Result<()> {
+pub async fn remove_db(
+    package_id: PackageId,
+    db: &str,
+    timeout: Option<u64>,
+) -> anyhow::Result<()> {
     let timeout = timeout.unwrap_or(5);
 
     let request = Request::new()
@@ -219,7 +223,11 @@ pub async fn open_raw(
 }
 
 /// Opens or creates a kv db.
-pub async fn open<K, V>(package_id: PackageId, db: &str, timeout: Option<u64>) -> anyhow::Result<Kv<K, V>>
+pub async fn open<K, V>(
+    package_id: PackageId,
+    db: &str,
+    timeout: Option<u64>,
+) -> anyhow::Result<Kv<K, V>>
 where
     K: Serialize + DeserializeOwned,
     V: Serialize + DeserializeOwned,

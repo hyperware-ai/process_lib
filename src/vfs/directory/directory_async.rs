@@ -8,8 +8,10 @@ pub async fn remove_dir_async(path: &str, timeout: Option<u64>) -> Result<(), Vf
     let timeout = timeout.unwrap_or(5);
 
     let request = vfs_request(path, VfsAction::RemoveDir).expects_response(timeout);
-    
-    let response = hyperapp::send::<VfsResponse>(request).await.map_err(|_| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+
+    let response = hyperapp::send::<VfsResponse>(request)
+        .await
+        .map_err(|_| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
     match response {
         VfsResponse::Ok => Ok(()),

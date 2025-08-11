@@ -1,7 +1,7 @@
 pub use super::server::{HttpResponse, WsMessageType};
-use crate::{get_blob, LazyLoadBlob as KiBlob, Request as KiRequest};
 #[cfg(not(feature = "hyperapp"))]
 use crate::Message;
+use crate::{get_blob, LazyLoadBlob as KiBlob, Request as KiRequest};
 use http::Method;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -220,9 +220,12 @@ pub async fn send_request_await_response(
         .blob_bytes(body)
         .expects_response(timeout);
 
-    let resp_result = hyperapp::send::<std::result::Result<HttpClientResponse, HttpClientError>>(request)
-        .await
-        .map_err(|_| HttpClientError::ExecuteRequestFailed("http-client timed out".to_string()))?;
+    let resp_result =
+        hyperapp::send::<std::result::Result<HttpClientResponse, HttpClientError>>(request)
+            .await
+            .map_err(|_| {
+                HttpClientError::ExecuteRequestFailed("http-client timed out".to_string())
+            })?;
 
     let resp = match resp_result {
         Ok(HttpClientResponse::Http(resp)) => resp,
@@ -309,9 +312,10 @@ pub async fn open_ws_connection(
         )
         .expects_response(5);
 
-    let resp_result = hyperapp::send::<std::result::Result<HttpClientResponse, HttpClientError>>(request)
-        .await
-        .map_err(|_| HttpClientError::WsOpenFailed { url: url.clone() })?;
+    let resp_result =
+        hyperapp::send::<std::result::Result<HttpClientResponse, HttpClientError>>(request)
+            .await
+            .map_err(|_| HttpClientError::WsOpenFailed { url: url.clone() })?;
 
     match resp_result {
         Ok(HttpClientResponse::WebSocketAck) => Ok(()),
@@ -354,9 +358,10 @@ pub async fn close_ws_connection(channel_id: u32) -> std::result::Result<(), Htt
         )
         .expects_response(5);
 
-    let resp_result = hyperapp::send::<std::result::Result<HttpClientResponse, HttpClientError>>(request)
-        .await
-        .map_err(|_| HttpClientError::WsCloseFailed { channel_id })?;
+    let resp_result =
+        hyperapp::send::<std::result::Result<HttpClientResponse, HttpClientError>>(request)
+            .await
+            .map_err(|_| HttpClientError::WsCloseFailed { channel_id })?;
 
     match resp_result {
         Ok(HttpClientResponse::WebSocketAck) => Ok(()),
