@@ -163,8 +163,6 @@ pub(crate) fn send_message(
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?;
 
-    kiprintln!("Response: {:?}", response);
-
     let hyperwallet_response: types::HyperwalletResponse =
         serde_json::from_slice(response.body()).map_err(HyperwalletClientError::Deserialization)?;
 
