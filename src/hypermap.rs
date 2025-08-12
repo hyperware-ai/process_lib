@@ -1550,8 +1550,8 @@ impl Serialize for CacherRequest {
                 map.end()
             }
             CacherRequest::StartProviding => {
-                print_to_terminal(0, "GitSTAAAAAAAAAAH");
-                serializer.serialize_str("StartProviding")
+                panic!("INTENTIONAL: StartProviding handler panic");
+                //serializer.serialize_str("StartProviding")
             }
             CacherRequest::StopProviding => {
                 print_to_terminal(0, "GitSTOAAAAAAAAAH");
