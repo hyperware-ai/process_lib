@@ -390,7 +390,6 @@ where
     }
 }
 
-#[cfg(not(feature = "hyperapp"))]
 pub fn setup_server(
     ui_config: Option<&HttpBindingConfig>,
     endpoints: &[Binding],
@@ -425,51 +424,6 @@ pub fn setup_server(
             Binding::Ws { path, config } => {
                 server
                     .bind_ws_path(path.to_string(), config.clone())
-                    .expect("failed to bind WS path");
-            }
-        }
-    }
-
-    server
-}
-
-#[cfg(feature = "hyperapp")]
-pub async fn setup_server(
-    ui_config: Option<&HttpBindingConfig>,
-    endpoints: &[Binding],
-) -> http::server::HttpServer {
-    let mut server = http::server::HttpServer::new(5);
-
-    if let Some(ui) = ui_config {
-        if let Err(e) = server.serve_ui("ui", vec!["/"], ui.clone()).await {
-            panic!("failed to serve UI: {e}. Make sure that a ui folder is in /pkg");
-        }
-    }
-
-    // Verify no duplicate paths
-    let mut seen_paths = std::collections::HashSet::new();
-    for endpoint in endpoints.iter() {
-        let path = match endpoint {
-            Binding::Http { path, .. } => path,
-            Binding::Ws { path, .. } => path,
-        };
-        if !seen_paths.insert(path) {
-            panic!("duplicate path found: {}", path);
-        }
-    }
-
-    for endpoint in endpoints {
-        match endpoint {
-            Binding::Http { path, config } => {
-                server
-                    .bind_http_path(path.to_string(), config.clone())
-                    .await
-                    .expect("failed to serve API path");
-            }
-            Binding::Ws { path, config } => {
-                server
-                    .bind_ws_path(path.to_string(), config.clone())
-                    .await
                     .expect("failed to bind WS path");
             }
         }
