@@ -1536,36 +1536,20 @@ impl Serialize for CacherRequest {
         S: Serializer,
     {
         match self {
-            CacherRequest::GetManifest => {
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("GetManifest", &())?;
-                map.end()
-            }
+            CacherRequest::GetManifest => serializer.serialize_str("GetManifest"),
             CacherRequest::GetLogCacheContent(path) => {
                 let mut map = serializer.serialize_map(Some(1))?;
                 map.serialize_entry("GetLogCacheContent", path)?;
                 map.end()
             }
-            CacherRequest::GetStatus => {
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("GetStatus", &())?;
-                map.end()
-            }
+            CacherRequest::GetStatus => serializer.serialize_str("GetStatus"),
             CacherRequest::GetLogsByRange(request) => {
                 let mut map = serializer.serialize_map(Some(1))?;
                 map.serialize_entry("GetLogsByRange", request)?;
                 map.end()
             }
-            CacherRequest::StartProviding => {
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("StartProviding", &())?;
-                map.end()
-            }
-            CacherRequest::StopProviding => {
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("StopProviding", &())?;
-                map.end()
-            }
+            CacherRequest::StartProviding => serializer.serialize_str("StartProviding"),
+            CacherRequest::StopProviding => serializer.serialize_str("StopProviding"),
             CacherRequest::SetNodes(nodes) => {
                 let mut map = serializer.serialize_map(Some(1))?;
                 map.serialize_entry("SetNodes", nodes)?;
@@ -1591,8 +1575,32 @@ impl<'de> Deserialize<'de> for CacherRequest {
             type Value = CacherRequest;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter
-                    .write_str("a map with a single key representing the CacherRequest variant")
+                formatter.write_str("a string for unit variants or a map for other variants")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                match value {
+                    "GetManifest" => Ok(CacherRequest::GetManifest),
+                    "GetStatus" => Ok(CacherRequest::GetStatus),
+                    "StartProviding" => Ok(CacherRequest::StartProviding),
+                    "StopProviding" => Ok(CacherRequest::StopProviding),
+                    _ => Err(de::Error::unknown_variant(
+                        value,
+                        &[
+                            "GetManifest",
+                            "GetLogCacheContent",
+                            "GetStatus",
+                            "GetLogsByRange",
+                            "StartProviding",
+                            "StopProviding",
+                            "SetNodes",
+                            "Reset",
+                        ],
+                    )),
+                }
             }
 
             fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
@@ -1603,19 +1611,20 @@ impl<'de> Deserialize<'de> for CacherRequest {
                     .next_entry::<String, serde_json::Value>()?
                     .ok_or_else(|| de::Error::invalid_length(0, &self))?;
 
+                // Ensure there are no extra entries
+                if map.next_entry::<String, serde_json::Value>()?.is_some() {
+                    return Err(de::Error::custom("unexpected extra entries in map"));
+                }
+
                 match variant.as_str() {
-                    "GetManifest" => Ok(CacherRequest::GetManifest),
                     "GetLogCacheContent" => {
                         let path = serde_json::from_value(value).map_err(de::Error::custom)?;
                         Ok(CacherRequest::GetLogCacheContent(path))
                     }
-                    "GetStatus" => Ok(CacherRequest::GetStatus),
                     "GetLogsByRange" => {
                         let request = serde_json::from_value(value).map_err(de::Error::custom)?;
                         Ok(CacherRequest::GetLogsByRange(request))
                     }
-                    "StartProviding" => Ok(CacherRequest::StartProviding),
-                    "StopProviding" => Ok(CacherRequest::StopProviding),
                     "SetNodes" => {
                         let nodes = serde_json::from_value(value).map_err(de::Error::custom)?;
                         Ok(CacherRequest::SetNodes(nodes))
@@ -1641,7 +1650,7 @@ impl<'de> Deserialize<'de> for CacherRequest {
             }
         }
 
-        deserializer.deserialize_map(CacherRequestVisitor)
+        deserializer.deserialize_any(CacherRequestVisitor)
     }
 }
 
@@ -1681,16 +1690,8 @@ impl Serialize for CacherResponse {
                 map.serialize_entry("StopProviding", result)?;
                 map.end()
             }
-            CacherResponse::Rejected => {
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("Rejected", &())?;
-                map.end()
-            }
-            CacherResponse::IsStarting => {
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("IsStarting", &())?;
-                map.end()
-            }
+            CacherResponse::Rejected => serializer.serialize_str("Rejected"),
+            CacherResponse::IsStarting => serializer.serialize_str("IsStarting"),
             CacherResponse::SetNodes(result) => {
                 let mut map = serializer.serialize_map(Some(1))?;
                 map.serialize_entry("SetNodes", result)?;
@@ -1716,8 +1717,32 @@ impl<'de> Deserialize<'de> for CacherResponse {
             type Value = CacherResponse;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter
-                    .write_str("a map with a single key representing the CacherResponse variant")
+                formatter.write_str("a string for unit variants or a map for other variants")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                match value {
+                    "Rejected" => Ok(CacherResponse::Rejected),
+                    "IsStarting" => Ok(CacherResponse::IsStarting),
+                    _ => Err(de::Error::unknown_variant(
+                        value,
+                        &[
+                            "GetManifest",
+                            "GetLogCacheContent",
+                            "GetStatus",
+                            "GetLogsByRange",
+                            "StartProviding",
+                            "StopProviding",
+                            "Rejected",
+                            "IsStarting",
+                            "SetNodes",
+                            "Reset",
+                        ],
+                    )),
+                }
             }
 
             fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
@@ -1727,6 +1752,11 @@ impl<'de> Deserialize<'de> for CacherResponse {
                 let (variant, value) = map
                     .next_entry::<String, serde_json::Value>()?
                     .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+
+                // Ensure there are no extra entries
+                if map.next_entry::<String, serde_json::Value>()?.is_some() {
+                    return Err(de::Error::custom("unexpected extra entries in map"));
+                }
 
                 match variant.as_str() {
                     "GetManifest" => {
@@ -1753,8 +1783,6 @@ impl<'de> Deserialize<'de> for CacherResponse {
                         let result = serde_json::from_value(value).map_err(de::Error::custom)?;
                         Ok(CacherResponse::StopProviding(result))
                     }
-                    "Rejected" => Ok(CacherResponse::Rejected),
-                    "IsStarting" => Ok(CacherResponse::IsStarting),
                     "SetNodes" => {
                         let result = serde_json::from_value(value).map_err(de::Error::custom)?;
                         Ok(CacherResponse::SetNodes(result))
@@ -1782,7 +1810,7 @@ impl<'de> Deserialize<'de> for CacherResponse {
             }
         }
 
-        deserializer.deserialize_map(CacherResponseVisitor)
+        deserializer.deserialize_any(CacherResponseVisitor)
     }
 }
 

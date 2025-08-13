@@ -13,6 +13,14 @@
 //! for applications that want to maximize composability and introspectability.
 //! For blobs, we recommend bincode to serialize and deserialize to bytes.
 //!
+//! `process_lib` v`2.x.y` uses [`wit-bindgen`](https://github.com/bytecodealliance/wit-bindgen) v`0.42.1`.
+//! Processes depending on `process_lib` must also use that version.
+//!
+//! `process_lib` version | `wit-bindgen` version
+//! --------------------- | ---------------------
+//! `2.x.y`               | `0.42.1`
+//! `1.x.y`               | `0.36.0`
+//!
 pub use crate::hyperware::process::standard::*;
 use serde_json::Value;
 
