@@ -1,5 +1,10 @@
-use crate::{Context, Message, Request, SendError};
+use crate::{Context, Request};
+#[cfg(not(feature = "hyperapp"))]
+use crate::{Message, SendError};
 use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "hyperapp")]
+use crate::hyperapp;
 
 /// The [`Request::body()`] field for requests to `timer:distro:sys`, a runtime module
 /// that allows processes to set timers with a duration specified in milliseconds.
@@ -33,10 +38,18 @@ pub fn set_timer(duration: u64, context: Option<Context>) {
 
 /// Set a timer using the runtime that will return a [`crate::Response`] after the specified duration,
 /// then wait for that timer to resolve. The duration should be a number of milliseconds.
+#[cfg(not(feature = "hyperapp"))]
 pub fn set_and_await_timer(duration: u64) -> Result<Message, SendError> {
     Request::to(("our", "timer", "distro", "sys"))
         .body(TimerAction::SetTimer(duration))
         .send_and_await_response((duration / 1000) + 1)
         // safe to unwrap this call when we know we've set both target and body
         .unwrap()
+}
+
+/// Set a timer using the runtime that will return a [`crate::Response`] after the specified duration,
+/// then wait for that timer to resolve. The duration should be a number of milliseconds.
+#[cfg(feature = "hyperapp")]
+pub async fn set_and_await_timer(duration: u64) -> Result<(), hyperapp::AppSendError> {
+    hyperapp::sleep(duration).await
 }

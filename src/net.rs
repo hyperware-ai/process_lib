@@ -1,6 +1,11 @@
-use crate::{get_blob, Address, NodeId, Request, SendError};
+#[cfg(not(feature = "hyperapp"))]
+use crate::SendError;
+use crate::{get_blob, Address, NodeId, Request};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+#[cfg(feature = "hyperapp")]
+use crate::hyperapp;
 
 //
 // Networking protocol types and functions for interacting with it
@@ -166,6 +171,7 @@ impl HnsUpdate {
 ///
 /// This function uses a 30-second timeout to reach `net:distro:sys`. If more
 /// control over the timeout is needed, create a [`Request`] directly.
+#[cfg(not(feature = "hyperapp"))]
 pub fn sign<T>(message: T) -> Result<Vec<u8>, SendError>
 where
     T: Into<Vec<u8>>,
@@ -184,8 +190,40 @@ where
 /// to verify the signature, which takes a `from` address to match against
 /// the prepended signing [`Address`] of the source process.
 ///
+/// Sign a message with the node's networking key. This may be used to prove
+/// identity to other parties outside of using the networking protocol.
+///
+/// Note that the given message will be prepended with the source [`Address`]
+/// of this message. This is done in order to not allow different processes
+/// on the same node to sign messages for/as one another. The receiver of
+/// the signed message should use [`verify()`] to verify the signature, which
+/// takes a `from` address to match against that prepended signing [`Address`].
+///
 /// This function uses a 30-second timeout to reach `net:distro:sys`. If more
 /// control over the timeout is needed, create a [`Request`] directly.
+#[cfg(feature = "hyperapp")]
+pub async fn sign<T>(message: T) -> Result<Vec<u8>, hyperapp::AppSendError>
+where
+    T: Into<Vec<u8>>,
+{
+    let request = Request::to(("our", "net", "distro", "sys"))
+        .body(rmp_serde::to_vec(&NetAction::Sign).unwrap())
+        .blob_bytes(message.into())
+        .expects_response(30);
+
+    let _response = hyperapp::send_rmp::<NetResponse>(request).await?;
+    Ok(get_blob().unwrap().bytes)
+}
+
+/// Verify a signature on a message.
+///
+/// The receiver of a signature created using [`sign`] should use this function
+/// to verify the signature, which takes a `from` address to match against
+/// the prepended signing [`Address`] of the source process.
+///
+/// This function uses a 30-second timeout to reach `net:distro:sys`. If more
+/// control over the timeout is needed, create a [`Request`] directly.
+#[cfg(not(feature = "hyperapp"))]
 pub fn verify<T, U, V>(from: T, message: U, signature: V) -> Result<bool, SendError>
 where
     T: Into<Address>,
@@ -215,9 +253,49 @@ where
 
 /// Get a [`crate::hypermap::Hypermap`] entry name from its namehash.
 ///
+/// Verify a signature on a message.
+///
+/// The receiver of a signature created using [`sign`] should use this function
+/// to verify the signature, which takes a `from` address to match against
+/// the prepended signing [`Address`] of the source process.
+///
+/// This function uses a 30-second timeout to reach `net:distro:sys`. If more
+/// control over the timeout is needed, create a [`Request`] directly.
+#[cfg(feature = "hyperapp")]
+pub async fn verify<T, U, V>(
+    from: T,
+    message: U,
+    signature: V,
+) -> Result<bool, hyperapp::AppSendError>
+where
+    T: Into<Address>,
+    U: Into<Vec<u8>>,
+    V: Into<Vec<u8>>,
+{
+    let request = Request::to(("our", "net", "distro", "sys"))
+        .body(
+            rmp_serde::to_vec(&NetAction::Verify {
+                from: from.into(),
+                signature: signature.into(),
+            })
+            .unwrap(),
+        )
+        .blob_bytes(message.into())
+        .expects_response(30);
+
+    let response = hyperapp::send_rmp::<NetResponse>(request).await?;
+    let NetResponse::Verified(valid) = response else {
+        return Ok(false);
+    };
+    Ok(valid)
+}
+
+/// Get a [`crate::hypermap::Hypermap`] entry name from its namehash.
+///
 /// Default timeout is 30 seconds. Note that the responsiveness of the indexer
 /// will depend on the block option used. The indexer will wait until it has
 /// seen the block given to respond.
+#[cfg(not(feature = "hyperapp"))]
 pub fn get_name<T>(namehash: T, block: Option<u64>, timeout: Option<u64>) -> Option<String>
 where
     T: Into<String>,
@@ -239,6 +317,33 @@ where
     else {
         return None;
     };
+
+    maybe_name
+}
+
+/// Get a [`crate::hypermap::Hypermap`] entry name from its namehash.
+///
+/// Default timeout is 30 seconds. Note that the responsiveness of the indexer
+/// will depend on the block option used. The indexer will wait until it has
+/// seen the block given to respond.
+#[cfg(feature = "hyperapp")]
+pub async fn get_name<T>(namehash: T, block: Option<u64>, timeout: Option<u64>) -> Option<String>
+where
+    T: Into<String>,
+{
+    let request = Request::to(("our", "hns-indexer", "hns-indexer", "sys"))
+        .body(
+            serde_json::to_vec(&IndexerRequests::NamehashToName(NamehashToNameRequest {
+                hash: namehash.into(),
+                block: block.unwrap_or(0),
+            }))
+            .unwrap(),
+        )
+        .expects_response(timeout.unwrap_or(30));
+
+    let response = hyperapp::send::<IndexerResponses>(request).await.ok()?;
+
+    let IndexerResponses::Name(maybe_name) = response;
 
     maybe_name
 }
