@@ -2345,7 +2345,7 @@ impl UserOperationBuilder {
     }
 
     /// Calculate the UserOp hash according to ERC-4337 spec
-    fn get_user_op_hash(
+    fn _get_user_op_hash(
         &self,
         user_op: &UserOperation,
         entry_point: EthAddress,
@@ -2354,7 +2354,7 @@ impl UserOperationBuilder {
         use sha3::{Digest, Keccak256};
 
         // Pack the UserOp for hashing (without signature)
-        let packed = self.pack_user_op_for_hash(user_op);
+        let packed = self._pack_user_op_for_hash(user_op);
         let user_op_hash = Keccak256::digest(&packed);
 
         // Create the final hash with entry point and chain ID
@@ -2389,7 +2389,7 @@ impl UserOperationBuilder {
     }
 
     /// Pack UserOp fields for hashing (ERC-4337 specification)
-    fn pack_user_op_for_hash(&self, user_op: &UserOperation) -> Vec<u8> {
+    fn _pack_user_op_for_hash(&self, user_op: &UserOperation) -> Vec<u8> {
         use sha3::{Digest, Keccak256};
 
         let mut packed = Vec::new();
@@ -2473,11 +2473,11 @@ impl UserOperationBuilder {
     pub fn paymaster_with_permit<S: Signer>(
         &mut self,
         paymaster: EthAddress,
-        token_address: EthAddress,
-        max_cost: U256,
-        tba_address: EthAddress,
-        signer: &S,
-        provider: &Provider,
+        _token_address: EthAddress,
+        _max_cost: U256,
+        _tba_address: EthAddress,
+        _signer: &S,
+        _provider: &Provider,
     ) -> Result<(), WalletError> {
         // Use simple Circle format - no permit signature needed
         // The TBA has already approved the paymaster to spend USDC
@@ -2741,8 +2741,8 @@ pub fn encode_usdc_paymaster_data_with_signer<S: Signer>(
 /// This version uses a dummy signature and will fail with AA33
 pub fn encode_usdc_paymaster_data(
     paymaster: EthAddress,
-    token_address: EthAddress,
-    max_cost: U256,
+    _token_address: EthAddress,
+    _max_cost: U256,
 ) -> Vec<u8> {
     // Use the new Circle format with default gas limits
     encode_circle_paymaster_data(paymaster, 500_000, 300_000)
@@ -2826,13 +2826,13 @@ pub fn create_erc20_permit_calldata(
 /// Creates a multicall calldata that combines permit + another operation
 /// This is useful for TBAs to approve and use tokens in a single transaction
 pub fn create_multicall_permit_and_execute(
-    token_address: EthAddress,
+    _token_address: EthAddress,
     permit_spender: EthAddress,
     permit_amount: U256,
     permit_deadline: U256,
-    execute_target: EthAddress,
-    execute_calldata: Vec<u8>,
-    execute_value: U256,
+    _execute_target: EthAddress,
+    _execute_calldata: Vec<u8>,
+    _execute_value: U256,
 ) -> Vec<u8> {
     // Create permit calldata
     let permit_calldata = create_erc20_permit_calldata(

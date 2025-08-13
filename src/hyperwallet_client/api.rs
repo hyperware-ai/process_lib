@@ -1,10 +1,9 @@
 use super::types::{
     self, Balance, BuildAndSignUserOperationForPaymentRequest, BuildAndSignUserOperationResponse,
     CreateWalletRequest, ExportWalletResponse, GetTokenBalanceResponse, HyperwalletMessage,
-    HyperwalletRequest, HyperwalletResponse, ImportWalletRequest, ListWalletsResponse,
-    PaymasterConfig, RenameWalletRequest, SendEthRequest, SendTokenRequest, SessionId,
-    SubmitUserOperationResponse, TxReceipt, UnlockWalletRequest, UserOperationReceiptResponse,
-    Wallet,
+    HyperwalletRequest, ImportWalletRequest, ListWalletsResponse, PaymasterConfig,
+    RenameWalletRequest, SendEthRequest, SendTokenRequest, SessionId, SetWalletLimitsRequest,
+    SetWalletLimitsResponse, TxReceipt, UnlockWalletRequest, UserOperationReceiptResponse, Wallet,
 };
 use super::HyperwalletClientError;
 use crate::wallet;
@@ -15,21 +14,31 @@ pub fn create_wallet(
     name: Option<&str>,
     password: Option<&str>,
 ) -> Result<Wallet, HyperwalletClientError> {
-    let request = build_request(
+    let message = build_message(
         session_id,
-        CreateWalletRequest {
+        HyperwalletRequest::CreateWallet(CreateWalletRequest {
             name: name.map(|s| s.to_string()).unwrap_or_default(),
             password: password.map(|s| s.to_string()),
-        },
+        }),
     );
 
-    let message = HyperwalletMessage::CreateWallet(request);
-    let response: HyperwalletResponse<Wallet> = super::send_message(message)?;
-    response.data.ok_or_else(|| {
-        HyperwalletClientError::ServerError(types::OperationError::internal_error(
-            "Missing wallet data in response",
-        ))
-    })
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::CreateWallet(wallet_response)) => {
+            Ok(types::Wallet {
+                address: wallet_response.address,
+                name: Some(wallet_response.name),
+                chain_id: 8453, // Base mainnet - TODO: get from response
+                encrypted: password.is_some(),
+                created_at: None,
+                last_used: None,
+                spending_limits: None,
+            })
+        }
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Missing or invalid wallet data in response"),
+        )),
+    }
 }
 
 pub fn import_wallet(
@@ -38,22 +47,32 @@ pub fn import_wallet(
     private_key: &str,
     password: Option<&str>,
 ) -> Result<Wallet, HyperwalletClientError> {
-    let request = build_request(
+    let message = build_message(
         session_id,
-        ImportWalletRequest {
+        HyperwalletRequest::ImportWallet(ImportWalletRequest {
             name: name.to_string(),
             private_key: private_key.to_string(),
             password: password.map(|s| s.to_string()),
-        },
+        }),
     );
 
-    let message = HyperwalletMessage::ImportWallet(request);
-    let response: HyperwalletResponse<Wallet> = super::send_message(message)?;
-    response.data.ok_or_else(|| {
-        HyperwalletClientError::ServerError(types::OperationError::internal_error(
-            "Missing wallet data in response",
-        ))
-    })
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::ImportWallet(wallet_response)) => {
+            Ok(types::Wallet {
+                address: wallet_response.address,
+                name: Some(wallet_response.name),
+                chain_id: 8453, // Base mainnet - TODO: get from response
+                encrypted: password.is_some(),
+                created_at: None,
+                last_used: None,
+                spending_limits: None,
+            })
+        }
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Missing or invalid wallet data in response"),
+        )),
+    }
 }
 
 pub fn unlock_wallet(
@@ -62,68 +81,82 @@ pub fn unlock_wallet(
     wallet_id: &str,
     password: &str,
 ) -> Result<(), HyperwalletClientError> {
-    let request = build_request(
+    let message = build_message(
         session_id,
-        UnlockWalletRequest {
+        HyperwalletRequest::UnlockWallet(UnlockWalletRequest {
             session_id: target_session_id.to_string(),
             wallet_id: wallet_id.to_string(),
             password: password.to_string(),
-        },
+        }),
     );
 
-    let message = HyperwalletMessage::UnlockWallet(request);
-    let _response: HyperwalletResponse<()> = super::send_message(message)?;
-    Ok(())
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::UnlockWallet(_)) => Ok(()),
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Failed to unlock wallet"),
+        )),
+    }
 }
 
 pub fn list_wallets(session_id: &SessionId) -> Result<ListWalletsResponse, HyperwalletClientError> {
-    let request = build_request(session_id, ());
+    let message = build_message(session_id, HyperwalletRequest::ListWallets);
 
-    let message = HyperwalletMessage::ListWallets(request);
-    let response: HyperwalletResponse<ListWalletsResponse> = super::send_message(message)?;
-    let list_response = response.data.ok_or_else(|| {
-        HyperwalletClientError::ServerError(types::OperationError::internal_error(
-            "Missing wallet list in response",
-        ))
-    })?;
-
-    Ok(list_response)
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::ListWallets(list_response)) => Ok(list_response),
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Missing or invalid wallet list in response"),
+        )),
+    }
 }
 
 pub fn get_wallet_info(
     session_id: &SessionId,
     wallet_id: &str,
 ) -> Result<Wallet, HyperwalletClientError> {
-    let request = build_request(
+    let message = build_message(
         session_id,
-        types::GetWalletInfoRequest {
+        HyperwalletRequest::GetWalletInfo(types::GetWalletInfoRequest {
             wallet_id: wallet_id.to_string(),
-        },
+        }),
     );
 
-    let message = HyperwalletMessage::GetWalletInfo(request);
-    let response: HyperwalletResponse<Wallet> = super::send_message(message)?;
-    response.data.ok_or_else(|| {
-        HyperwalletClientError::ServerError(types::OperationError::internal_error(
-            "Missing wallet data in response",
-        ))
-    })
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::GetWalletInfo(info_response)) => Ok(types::Wallet {
+            address: info_response.address,
+            name: Some(info_response.name),
+            chain_id: info_response.chain_id,
+            encrypted: info_response.is_locked,
+            created_at: None,
+            last_used: None,
+            spending_limits: None,
+        }),
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Missing or invalid wallet data in response"),
+        )),
+    }
 }
 
 pub fn delete_wallet(
     session_id: &SessionId,
     wallet_id: &str,
 ) -> Result<(), HyperwalletClientError> {
-    let request = build_request(
+    let message = build_message(
         session_id,
-        types::DeleteWalletRequest {
+        HyperwalletRequest::DeleteWallet(types::DeleteWalletRequest {
             wallet_id: wallet_id.to_string(),
-        },
+        }),
     );
 
-    let message = HyperwalletMessage::DeleteWallet(request);
-    let _response: HyperwalletResponse<()> = super::send_message(message)?;
-    Ok(())
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::DeleteWallet(_)) => Ok(()),
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Failed to delete wallet"),
+        )),
+    }
 }
 
 pub fn export_wallet(
@@ -131,21 +164,21 @@ pub fn export_wallet(
     wallet_id: &str,
     password: Option<&str>,
 ) -> Result<ExportWalletResponse, HyperwalletClientError> {
-    let request = build_request(
+    let message = build_message(
         session_id,
-        types::ExportWalletRequest {
+        HyperwalletRequest::ExportWallet(types::ExportWalletRequest {
             wallet_id: wallet_id.to_string(),
             password: password.map(|s| s.to_string()),
-        },
+        }),
     );
 
-    let message = HyperwalletMessage::ExportWallet(request);
-    let response: HyperwalletResponse<ExportWalletResponse> = super::send_message(message)?;
-    response.data.ok_or_else(|| {
-        HyperwalletClientError::ServerError(types::OperationError::internal_error(
-            "Missing export data in response",
-        ))
-    })
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::ExportWallet(export_response)) => Ok(export_response),
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Missing export data in response"),
+        )),
+    }
 }
 
 pub fn rename_wallet(
@@ -153,16 +186,46 @@ pub fn rename_wallet(
     wallet_id: &str,
     new_name: &str,
 ) -> Result<(), HyperwalletClientError> {
-    let request = build_request(
+    let message = build_message(
         session_id,
-        RenameWalletRequest {
+        HyperwalletRequest::RenameWallet(RenameWalletRequest {
             wallet_id: wallet_id.to_string(),
             new_name: new_name.to_string(),
-        },
+        }),
     );
-    let message = HyperwalletMessage::RenameWallet(request);
-    let _response: HyperwalletResponse<()> = super::send_message(message)?;
-    Ok(())
+    let response = super::send_message(message)?;
+    // RenameWallet doesn't have a response variant in the enum, so we just check for success
+    if response.error.is_none() {
+        Ok(())
+    } else {
+        Err(HyperwalletClientError::ServerError(
+            response.error.unwrap_or_else(|| {
+                types::OperationError::internal_error("Failed to rename wallet")
+            }),
+        ))
+    }
+}
+
+pub fn set_wallet_limits(
+    session_id: &SessionId,
+    wallet_id: &str,
+    limits: types::WalletSpendingLimits,
+) -> Result<SetWalletLimitsResponse, HyperwalletClientError> {
+    let message = build_message(
+        session_id,
+        HyperwalletRequest::SetWalletLimits(SetWalletLimitsRequest {
+            wallet_id: wallet_id.to_string(),
+            limits,
+        }),
+    );
+
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::SetWalletLimits(resp)) => Ok(resp),
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Missing SetWalletLimits response data"),
+        )),
+    }
 }
 
 // === TRANSACTIONS ===
@@ -173,22 +236,30 @@ pub fn send_eth(
     to_address: &str,
     amount_eth: &str,
 ) -> Result<TxReceipt, HyperwalletClientError> {
-    let request = build_request(
+    let message = build_message(
         session_id,
-        SendEthRequest {
+        HyperwalletRequest::SendEth(SendEthRequest {
             wallet_id: wallet_id.to_string(),
             to: to_address.to_string(),
             amount: amount_eth.to_string(),
-        },
+        }),
     );
 
-    let message = HyperwalletMessage::SendEth(request);
-    let response: HyperwalletResponse<TxReceipt> = super::send_message(message)?;
-    response.data.ok_or_else(|| {
-        HyperwalletClientError::ServerError(types::OperationError::internal_error(
-            "Missing transaction receipt in response",
-        ))
-    })
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::SendEth(send_response)) => Ok(TxReceipt {
+            hash: send_response.tx_hash,
+            details: serde_json::json!({
+                "from": send_response.from_address,
+                "to": send_response.to_address,
+                "amount": send_response.amount,
+                "chain_id": send_response.chain_id,
+            }),
+        }),
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Missing transaction receipt in response"),
+        )),
+    }
 }
 
 pub fn send_token(
@@ -198,23 +269,32 @@ pub fn send_token(
     to_address: &str,
     amount: &str,
 ) -> Result<TxReceipt, HyperwalletClientError> {
-    let request = build_request(
+    let message = build_message(
         session_id,
-        SendTokenRequest {
+        HyperwalletRequest::SendToken(SendTokenRequest {
             wallet_id: wallet_id.to_string(),
             token_address: token_address.to_string(),
             to: to_address.to_string(),
             amount: amount.to_string(),
-        },
+        }),
     );
 
-    let message = HyperwalletMessage::SendToken(request);
-    let response: HyperwalletResponse<TxReceipt> = super::send_message(message)?;
-    response.data.ok_or_else(|| {
-        HyperwalletClientError::ServerError(types::OperationError::internal_error(
-            "Missing transaction receipt in response",
-        ))
-    })
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::SendToken(send_response)) => Ok(TxReceipt {
+            hash: send_response.tx_hash,
+            details: serde_json::json!({
+                "from": send_response.from_address,
+                "to": send_response.to_address,
+                "token_address": send_response.token_address,
+                "amount": send_response.amount,
+                "chain_id": send_response.chain_id,
+            }),
+        }),
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Missing transaction receipt in response"),
+        )),
+    }
 }
 
 // === QUERIES ===
@@ -223,20 +303,22 @@ pub fn get_balance(
     session_id: &SessionId,
     wallet_id: &str,
 ) -> Result<Balance, HyperwalletClientError> {
-    let request = build_request(
+    let message = build_message(
         session_id,
-        types::GetBalanceRequest {
+        HyperwalletRequest::GetBalance(types::GetBalanceRequest {
             wallet_id: wallet_id.to_string(),
-        },
+        }),
     );
 
-    let message = HyperwalletMessage::GetBalance(request);
-    let response: HyperwalletResponse<Balance> = super::send_message(message)?;
-    response.data.ok_or_else(|| {
-        HyperwalletClientError::ServerError(types::OperationError::internal_error(
-            "Missing balance data in response",
-        ))
-    })
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::GetBalance(balance_response)) => {
+            Ok(balance_response.balance)
+        }
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Missing balance data in response"),
+        )),
+    }
 }
 
 pub fn get_token_balance(
@@ -244,21 +326,23 @@ pub fn get_token_balance(
     wallet_id: &str,
     token_address: &str,
 ) -> Result<GetTokenBalanceResponse, HyperwalletClientError> {
-    let request = build_request(
+    let message = build_message(
         session_id,
-        types::GetTokenBalanceRequest {
+        HyperwalletRequest::GetTokenBalance(types::GetTokenBalanceRequest {
             wallet_id: wallet_id.to_string(),
             token_address: token_address.to_string(),
-        },
+        }),
     );
 
-    let message = HyperwalletMessage::GetTokenBalance(request);
-    let response: HyperwalletResponse<GetTokenBalanceResponse> = super::send_message(message)?;
-    response.data.ok_or_else(|| {
-        HyperwalletClientError::ServerError(types::OperationError::internal_error(
-            "Missing token balance data in response",
-        ))
-    })
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::GetTokenBalance(balance_response)) => {
+            Ok(balance_response)
+        }
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Missing token balance data in response"),
+        )),
+    }
 }
 
 // === ACCOUNT ABSTRACTION ===
@@ -273,27 +357,30 @@ pub fn build_and_sign_user_operation_for_payment(
     paymaster_config: Option<PaymasterConfig>,
     password: Option<&str>,
 ) -> Result<BuildAndSignUserOperationResponse, HyperwalletClientError> {
-    let request = build_request(
+    let message = build_message(
         session_id,
-        BuildAndSignUserOperationForPaymentRequest {
-            eoa_wallet_id: eoa_wallet_id.to_string(),
-            tba_address: tba_address.to_string(),
-            target: target.to_string(),
-            call_data: call_data.to_string(),
-            use_paymaster,
-            paymaster_config,
-            password: password.map(|s| s.to_string()),
-        },
+        HyperwalletRequest::BuildAndSignUserOperationForPayment(
+            BuildAndSignUserOperationForPaymentRequest {
+                eoa_wallet_id: eoa_wallet_id.to_string(),
+                tba_address: tba_address.to_string(),
+                target: target.to_string(),
+                call_data: call_data.to_string(),
+                use_paymaster,
+                paymaster_config,
+                password: password.map(|s| s.to_string()),
+            },
+        ),
     );
 
-    let message = HyperwalletMessage::BuildAndSignUserOperationForPayment(request);
-    let response: HyperwalletResponse<BuildAndSignUserOperationResponse> =
-        super::send_message(message)?;
-    response.data.ok_or_else(|| {
-        HyperwalletClientError::ServerError(types::OperationError::internal_error(
-            "Missing UserOperation build response data",
-        ))
-    })
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::BuildAndSignUserOperationForPayment(
+            build_response,
+        )) => Ok(build_response),
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Missing UserOperation build response data"),
+        )),
+    }
 }
 
 pub fn submit_user_operation(
@@ -302,45 +389,47 @@ pub fn submit_user_operation(
     entry_point: &str,
     bundler_url: Option<&str>,
 ) -> Result<String, HyperwalletClientError> {
-    let request = build_request(
+    let message = build_message(
         session_id,
-        types::SubmitUserOperationRequest {
-            signed_user_operation,
+        HyperwalletRequest::SubmitUserOperation(types::SubmitUserOperationRequest {
+            signed_user_operation: serde_json::to_string(&signed_user_operation)
+                .map_err(HyperwalletClientError::Serialization)?,
             entry_point: entry_point.to_string(),
             bundler_url: bundler_url.map(|s| s.to_string()),
-        },
+        }),
     );
 
-    let message = HyperwalletMessage::SubmitUserOperation(request);
-    let response: HyperwalletResponse<SubmitUserOperationResponse> = super::send_message(message)?;
-    let data = response.data.ok_or_else(|| {
-        HyperwalletClientError::ServerError(types::OperationError::internal_error(
-            "Missing UserOperation response data",
-        ))
-    })?;
-
-    // Direct field access - no manual JSON parsing needed!
-    Ok(data.user_op_hash)
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::SubmitUserOperation(submit_response)) => {
+            Ok(submit_response.user_op_hash)
+        }
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Missing UserOperation response data"),
+        )),
+    }
 }
 
 pub fn get_user_operation_receipt(
     session_id: &SessionId,
     user_op_hash: &str,
 ) -> Result<UserOperationReceiptResponse, HyperwalletClientError> {
-    let request = build_request(
+    let message = build_message(
         session_id,
-        types::GetUserOperationReceiptRequest {
+        HyperwalletRequest::GetUserOperationReceipt(types::GetUserOperationReceiptRequest {
             user_op_hash: user_op_hash.to_string(),
-        },
+        }),
     );
 
-    let message = HyperwalletMessage::GetUserOperationReceipt(request);
-    let response: HyperwalletResponse<UserOperationReceiptResponse> = super::send_message(message)?;
-    response.data.ok_or_else(|| {
-        HyperwalletClientError::ServerError(types::OperationError::internal_error(
-            "Missing UserOperation receipt data in response",
-        ))
-    })
+    let response = super::send_message(message)?;
+    match response.data {
+        Some(types::HyperwalletResponseData::GetUserOperationReceipt(receipt_response)) => {
+            Ok(receipt_response)
+        }
+        _ => Err(HyperwalletClientError::ServerError(
+            types::OperationError::internal_error("Missing UserOperation receipt data in response"),
+        )),
+    }
 }
 
 // === CONVENIENCE FUNCTIONS ===
@@ -369,7 +458,8 @@ pub fn execute_gasless_payment(
 
     let user_op_hash = submit_user_operation(
         session_id,
-        build_response.signed_user_operation,
+        serde_json::from_str(&build_response.signed_user_operation)
+            .map_err(HyperwalletClientError::Deserialization)?,
         &build_response.entry_point,
         None, // bundler_url
     )?;
@@ -386,10 +476,10 @@ pub fn execute_gasless_payment(
     let tx_hash = receipt_response
         .receipt
         .as_ref()
-        .and_then(|r| r.get("transactionHash"))
-        .and_then(|h| h.as_str())
-        .unwrap_or(&user_op_hash) // Fallback to user op hash
-        .to_string();
+        .and_then(|r| serde_json::from_str::<serde_json::Value>(r).ok())
+        .and_then(|v| v.get("transactionHash").cloned())
+        .and_then(|h| h.as_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| user_op_hash.clone());
 
     Ok(tx_hash)
 }
@@ -425,9 +515,9 @@ pub fn create_tba_payment_calldata(
 
 // === INTERNAL HELPERS ===
 
-fn build_request<T>(session_id: &SessionId, operation_data: T) -> HyperwalletRequest<T> {
-    HyperwalletRequest {
-        data: operation_data,
+fn build_message(session_id: &SessionId, request: HyperwalletRequest) -> HyperwalletMessage {
+    HyperwalletMessage {
+        request,
         session_id: session_id.clone(),
     }
 }

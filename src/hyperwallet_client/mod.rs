@@ -1,17 +1,21 @@
+use crate::println as kiprintln;
 use crate::Request;
 use thiserror::Error;
 
 pub mod api;
+pub mod serde_impls;
+mod serde_response_impls; // Proper implementations replacing broken stubs
+mod serde_variant_impls;
 pub mod types;
 pub use types::{
     Balance, BuildAndSignUserOperationForPaymentRequest, BuildAndSignUserOperationResponse,
     ChainId, CheckTbaOwnershipResponse, CreateNoteResponse, CreateWalletRequest,
-    CreateWalletResponse, DeleteWalletRequest, DeleteWalletResponse, ErrorCode,
+    CreateWalletResponse, DeleteWalletRequest, DeleteWalletResponse, Eip712Data, ErrorCode,
     ExecuteViaTbaResponse, ExportWalletRequest, ExportWalletResponse, GetBalanceRequest,
     GetBalanceResponse, GetTokenBalanceRequest, GetTokenBalanceResponse, GetWalletInfoRequest,
-    GetWalletInfoResponse, HandshakeConfig, HandshakeRequest, HandshakeStep, HyperwalletMessage,
-    HyperwalletRequest, HyperwalletResponse, HyperwalletResponseData, ImportWalletRequest,
-    ImportWalletResponse, ListWalletsResponse, Operation, OperationCategory, OperationError,
+    GetWalletInfoResponse, HandshakeConfig, HandshakeStep, HyperwalletMessage, HyperwalletRequest,
+    HyperwalletResponse, HyperwalletResponseData, ImportWalletRequest, ImportWalletResponse,
+    ListWalletsResponse, MessageType, Operation, OperationCategory, OperationError,
     PaymasterConfig, ProcessAddress, ProcessPermissions, RenameWalletRequest, SendEthRequest,
     SendEthResponse, SendTokenRequest, SendTokenResponse, SessionId, SessionInfo, SpendingLimits,
     SubmitUserOperationResponse, TxReceipt, UnlockWalletResponse, UpdatableSetting,
@@ -43,29 +47,36 @@ pub enum HyperwalletClientError {
 
 /// Performs the full handshake and registration protocol with the Hyperwallet service.
 pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletClientError> {
+    const CLIENT_PROTOCOL_VERSION: &str = "0.1.0";
     let client_name = config.client_name.expect("Client name is required");
 
-    let hello_step = types::HandshakeStep::ClientHello {
-        client_version: "0.1.0".to_string(),
+    let hello_step = types::HandshakeStep::ClientHello(types::ClientHello {
+        client_version: CLIENT_PROTOCOL_VERSION.to_string(),
         client_name,
+    });
+    let hello_message = types::HyperwalletMessage {
+        request: types::HyperwalletRequest::Handshake(hello_step),
+        session_id: String::new(),
     };
-    let hello_message =
-        types::HyperwalletMessage::Handshake(types::HandshakeRequest { step: hello_step });
 
-    let welcome_response: types::HyperwalletResponse<types::HandshakeStep> =
-        send_message(hello_message)?;
+    let welcome_response = send_message(hello_message)?;
 
-    let welcome_step = welcome_response.data.ok_or_else(|| {
-        HyperwalletClientError::ServerError(types::OperationError::internal_error(
-            "Missing handshake step in ServerWelcome response",
-        ))
-    })?;
+    let welcome_step = match welcome_response.data {
+        Some(types::HyperwalletResponseData::Handshake(step)) => step,
+        _ => {
+            return Err(HyperwalletClientError::ServerError(
+                types::OperationError::internal_error(
+                    "Missing or invalid handshake step in ServerWelcome response",
+                ),
+            ))
+        }
+    };
 
-    let supported_operations = match welcome_step {
-        types::HandshakeStep::ServerWelcome {
-            supported_operations,
-            ..
-        } => supported_operations,
+    let (server_version, supported_operations) = match welcome_step {
+        types::HandshakeStep::ServerWelcome(server_welcome) => (
+            server_welcome.server_version,
+            server_welcome.supported_operations,
+        ),
         _ => {
             return Err(HyperwalletClientError::ServerError(
                 types::OperationError::internal_error(
@@ -74,6 +85,19 @@ pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletCli
             ))
         }
     };
+
+    // Basic protocol version negotiation: require matching major version
+    let client_major = CLIENT_PROTOCOL_VERSION
+        .split('.')
+        .next()
+        .unwrap_or(CLIENT_PROTOCOL_VERSION);
+    let server_major = server_version.split('.').next().unwrap_or(&server_version);
+    if client_major != server_major {
+        return Err(HyperwalletClientError::VersionMismatch {
+            client: CLIENT_PROTOCOL_VERSION.to_string(),
+            server: server_version,
+        });
+    }
 
     for required_op in &config.required_operations {
         if !supported_operations.contains(required_op) {
@@ -88,37 +112,37 @@ pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletCli
         }
     }
 
-    let register_step = types::HandshakeStep::Register {
+    let register_step = types::HandshakeStep::Register(types::RegisterRequest {
         required_operations: config.required_operations.into_iter().collect(),
         spending_limits: config.spending_limits,
-    };
-
-    let register_message = types::HyperwalletMessage::Handshake(types::HandshakeRequest {
-        step: register_step,
     });
 
-    let complete_response: types::HyperwalletResponse<types::HandshakeStep> =
-        send_message(register_message)?;
+    let register_message = types::HyperwalletMessage {
+        request: types::HyperwalletRequest::Handshake(register_step),
+        session_id: String::new(),
+    };
 
-    let complete_step = complete_response.data.ok_or_else(|| {
-        HyperwalletClientError::ServerError(types::OperationError::internal_error(
-            "Complete response contained no data",
-        ))
-    })?;
+    let complete_response = send_message(register_message)?;
+
+    let complete_step = match complete_response.data {
+        Some(types::HyperwalletResponseData::Handshake(step)) => step,
+        _ => {
+            return Err(HyperwalletClientError::ServerError(
+                types::OperationError::internal_error(
+                    "Complete response contained no data or invalid data type",
+                ),
+            ))
+        }
+    };
 
     // Extract SessionInfo using pattern matching
     match complete_step {
-        types::HandshakeStep::Complete {
-            registered_permissions,
-            session_id,
-        } => {
-            Ok(SessionInfo {
-                server_version: "0.1.0".to_string(), //lol, server should send it's version
-                session_id,
-                registered_permissions,
-                initial_chain_id: config.initial_chain_id,
-            })
-        }
+        types::HandshakeStep::Complete(complete_handshake) => Ok(types::SessionInfo {
+            server_version,
+            session_id: complete_handshake.session_id,
+            registered_permissions: complete_handshake.registered_permissions,
+            initial_chain_id: config.initial_chain_id,
+        }),
         _ => Err(HyperwalletClientError::ServerError(
             types::OperationError::internal_error(
                 "Expected Complete handshake step, received different step",
@@ -129,20 +153,17 @@ pub fn initialize(config: HandshakeConfig) -> Result<SessionInfo, HyperwalletCli
 
 // === INTERNAL HELPERS ===
 
-pub(crate) fn send_message<T>(
+pub(crate) fn send_message(
     message: types::HyperwalletMessage,
-) -> Result<types::HyperwalletResponse<T>, HyperwalletClientError>
-where
-    T: for<'de> serde::Deserialize<'de>,
-{
+) -> Result<types::HyperwalletResponse, HyperwalletClientError> {
     // Use local address pattern like HTTP client - hyperwallet is always local
-    let response = Request::to(("our", "hyperwallet", "hyperwallet", "hallman.hypr"))
+    let response = Request::to(("our", "hyperwallet", "hyperwallet", "sys"))
         .body(serde_json::to_vec(&message).map_err(HyperwalletClientError::Serialization)?)
         .send_and_await_response(5) // 5s timeout
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?;
 
-    let hyperwallet_response: types::HyperwalletResponse<T> =
+    let hyperwallet_response: types::HyperwalletResponse =
         serde_json::from_slice(response.body()).map_err(HyperwalletClientError::Deserialization)?;
 
     if !hyperwallet_response.success {
