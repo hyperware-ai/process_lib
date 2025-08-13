@@ -10,6 +10,7 @@ license = "Apache-2.0"
 
 [features]
 logging = ["dep:color-eyre", "dep:tracing", "dep:tracing-error", "dep:tracing-subscriber"]
+hyperwallet = []
 simulation-mode = []
 
 [dependencies]
@@ -20,18 +21,24 @@ alloy = { version = "0.8.1", features = [
     "json-rpc",
     "rpc-client",
     "rpc-types",
+    "signers",
+    "signer-local",
+    "consensus",
+    "network",
 ] }
 anyhow = "1.0"
 base64 = "0.22.1"
 bincode = "1.3.3"
 color-eyre = { version = "0.6", features = ["capture-spantrace"], optional = true }
+hex = "0.4.3"
 http = "1.0.0"
 mime_guess = "2.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0.120"
 rand = "0.8"
 regex = "1.11.1"
 rmp-serde = "1.1.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.120"
+sha3 = "0.10.8"
 thiserror = "1.0"
 tracing = { version = "0.1", optional = true }
 tracing-error = { version = "0.2", optional = true }
