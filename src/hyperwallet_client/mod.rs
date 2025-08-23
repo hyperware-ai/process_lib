@@ -159,7 +159,7 @@ pub(crate) fn send_message(
     // Use local address pattern like HTTP client - hyperwallet is always local
     let response = Request::to(("our", "hyperwallet", "hyperwallet", "sys"))
         .body(serde_json::to_vec(&message).map_err(HyperwalletClientError::Serialization)?)
-        .send_and_await_response(5) // 5s timeout
+        .send_and_await_response(45) // 45s timeout
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?
         .map_err(|e| HyperwalletClientError::Communication(e.into()))?;
 
