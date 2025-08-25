@@ -30,6 +30,10 @@ wit_bindgen::generate!({
     generate_unused_types: true,
 });
 
+/// Interact with the tokenregistry contract data
+pub mod bindings;
+/// Currently nothing in here except for the contract address.
+
 /// Interact with the eth provider module.
 pub mod eth;
 /// Your process must have the [`Capability`] to message
@@ -91,6 +95,7 @@ pub mod scripting;
 pub mod hyperwallet_client;
 
 mod types;
+
 pub use types::{
     address::{Address, AddressParseError},
     capability::Capability,
