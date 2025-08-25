@@ -1,10 +1,13 @@
+use crate::bindings::contract::getCall;
 use crate::eth::{
     BlockNumberOrTag, EthError, Filter as EthFilter, FilterBlockOption, Log as EthLog, Provider,
 };
-use crate::bindings::contract::getCall;
 use crate::hyperware::process::binding_cacher::{
-    BindingCacherRequest as CacherRequest, BindingCacherResponse as CacherResponse, BindingCacherStatus as CacherStatus, BindingGetLogsByRangeOkResponse as GetLogsByRangeOkResponse, BindingGetLogsByRangeRequest as GetLogsByRangeRequest,
-    BindingLogsMetadata as LogsMetadata, BindingManifest as Manifest, BindingManifestItem as ManifestItem,
+    BindingCacherRequest as CacherRequest, BindingCacherResponse as CacherResponse,
+    BindingCacherStatus as CacherStatus,
+    BindingGetLogsByRangeOkResponse as GetLogsByRangeOkResponse,
+    BindingGetLogsByRangeRequest as GetLogsByRangeRequest, BindingLogsMetadata as LogsMetadata,
+    BindingManifest as Manifest, BindingManifestItem as ManifestItem,
 };
 
 use crate::{net, sign};
@@ -341,8 +344,8 @@ pub fn valid_name(name: &str) -> bool {
     name.is_ascii()
         && name.len() >= 1
         && name
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 // TODO remove
@@ -351,9 +354,9 @@ pub fn valid_note(note: &str) -> bool {
         && note.len() >= 2
         && note.chars().next() == Some('~')
         && note
-        .chars()
-        .skip(1)
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            .chars()
+            .skip(1)
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 // TODO remove
@@ -362,9 +365,9 @@ pub fn valid_fact(fact: &str) -> bool {
         && fact.len() >= 2
         && fact.chars().next() == Some('!')
         && fact
-        .chars()
-        .skip(1)
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            .chars()
+            .skip(1)
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 // TODO remove
@@ -604,7 +607,7 @@ impl Bindings {
             namehash: FixedBytes::<32>::from_str(&namehash(path))
                 .map_err(|_| EthError::InvalidParams)?,
         }
-            .abi_encode();
+        .abi_encode();
 
         let tx_req = TransactionRequest::default()
             .input(TransactionInput::new(get_call.into()))
@@ -635,7 +638,7 @@ impl Bindings {
         let get_call = getCall {
             namehash: FixedBytes::<32>::from_str(entryhash).map_err(|_| EthError::InvalidParams)?,
         }
-            .abi_encode();
+        .abi_encode();
 
         let tx_req = TransactionRequest::default()
             .input(TransactionInput::new(get_call.into()))
@@ -883,9 +886,7 @@ impl Bindings {
                 }
             }
             CacherResponse::Rejected => {
-                return Err(anyhow::anyhow!(
-                    "Local binding-cacher rejected our request"
-                ));
+                return Err(anyhow::anyhow!("Local binding-cacher rejected our request"));
             }
             _ => {
                 return Err(anyhow::anyhow!(
