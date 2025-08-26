@@ -87,6 +87,9 @@ pub mod wallet;
 /// A set of types and macros for writing "script" processes.
 pub mod scripting;
 
+#[cfg(feature = "hyperapp")]
+pub mod hyperapp;
+
 #[cfg(feature = "hyperwallet")]
 pub mod hyperwallet_client;
 
