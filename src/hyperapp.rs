@@ -15,14 +15,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-// macro_export puts it in the root,
-//  so we re-export here so you can use as either
-//  hyperware_process_lib::run_async
-//  or
-//  hyperware_process_lib::hyperapp::run_async
-pub use crate::run_async;
-
 thread_local! {
+    static SPAWN_QUEUE: RefCell<Vec<Pin<Box<dyn Future<Output = ()>>>>> = RefCell::new(Vec::new());
+
+
     pub static APP_CONTEXT: RefCell<AppContext> = RefCell::new(AppContext {
         hidden_state: None,
         executor: Executor::new(),
@@ -140,22 +136,39 @@ pub struct Executor {
     tasks: Vec<Pin<Box<dyn Future<Output = ()>>>>,
 }
 
+pub fn spawn(fut: impl Future<Output = ()> + 'static) {
+    SPAWN_QUEUE.with(|queue| {
+        queue.borrow_mut().push(Box::pin(fut));
+    })
+}
+
+
 impl Executor {
     pub fn new() -> Self {
         Self { tasks: Vec::new() }
     }
 
-    pub fn spawn(&mut self, fut: impl Future<Output = ()> + 'static) {
-        self.tasks.push(Box::pin(fut));
-    }
-
     pub fn poll_all_tasks(&mut self) {
-        let mut ctx = Context::from_waker(noop_waker_ref());
-        let mut completed = Vec::new();
+        loop {
+            SPAWN_QUEUE.with(|queue| {
+                self.tasks.append(&mut queue.borrow_mut());
+            });
 
-        for i in 0..self.tasks.len() {
-            if let Poll::Ready(()) = self.tasks[i].as_mut().poll(&mut ctx) {
-                completed.push(i);
+            let mut ctx = Context::from_waker(noop_waker_ref());
+            let mut completed = Vec::new();
+
+            for i in 0..self.tasks.len() {
+                if let Poll::Ready(()) = self.tasks[i].as_mut().poll(&mut ctx) {
+                    completed.push(i);
+                }
+            }
+
+            // tasks can spawn more tasks
+            let should_break = SPAWN_QUEUE.with(|queue| {
+                queue.is_empty()
+            });
+            if should_break {
+                break;
             }
         }
 
@@ -280,17 +293,6 @@ where
     let e = rmp_serde::from_slice::<SendError>(&response_bytes)
         .expect("Failed to deserialize response to send()");
     return Err(AppSendError::SendError(e));
-}
-
-#[macro_export]
-macro_rules! run_async {
-    ($($code:tt)*) => {
-        hyperware_process_lib::hyperapp::APP_CONTEXT.with(|ctx| {
-            ctx.borrow_mut().executor.spawn(async move {
-                $($code)*
-            })
-        })
-    };
 }
 
 // Enum defining the state persistance behaviour
