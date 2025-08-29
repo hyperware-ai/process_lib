@@ -149,13 +149,14 @@ impl Executor {
     }
 
     pub fn poll_all_tasks(&mut self) {
+        let mut completed = Vec::new();
+
         loop {
             SPAWN_QUEUE.with(|queue| {
                 self.tasks.append(&mut queue.borrow_mut());
             });
 
             let mut ctx = Context::from_waker(noop_waker_ref());
-            let mut completed = Vec::new();
 
             for i in 0..self.tasks.len() {
                 if let Poll::Ready(()) = self.tasks[i].as_mut().poll(&mut ctx) {
@@ -165,6 +166,7 @@ impl Executor {
 
             // tasks can spawn more tasks
             let should_break = SPAWN_QUEUE.with(|queue| {
+                let queue = queue.borrow();
                 queue.is_empty()
             });
             if should_break {
