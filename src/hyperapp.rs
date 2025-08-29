@@ -142,7 +142,6 @@ pub fn spawn(fut: impl Future<Output = ()> + 'static) {
     })
 }
 
-
 impl Executor {
     pub fn new() -> Self {
         Self { tasks: Vec::new() }
