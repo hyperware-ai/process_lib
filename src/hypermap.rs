@@ -372,6 +372,7 @@ pub fn namehash(name: &str) -> String {
 /// Decode a mint log from the hypermap into a 'resolved' format.
 ///
 /// Uses [`valid_name()`] to check if the name is valid.
+#[cfg(not(feature = "hyperapp"))]
 pub fn decode_mint_log(log: &crate::eth::Log) -> Result<Mint, DecodeLogError> {
     let contract::Note::SIGNATURE_HASH = log.topics()[0] else {
         return Err(DecodeLogError::UnexpectedTopic(log.topics()[0]));
@@ -388,9 +389,30 @@ pub fn decode_mint_log(log: &crate::eth::Log) -> Result<Mint, DecodeLogError> {
     }
 }
 
+/// Decode a mint log from the hypermap into a 'resolved' format.
+///
+/// Uses [`valid_name()`] to check if the name is valid.
+#[cfg(feature = "hyperapp")]
+pub async fn decode_mint_log(log: &crate::eth::Log) -> Result<Mint, DecodeLogError> {
+    let contract::Note::SIGNATURE_HASH = log.topics()[0] else {
+        return Err(DecodeLogError::UnexpectedTopic(log.topics()[0]));
+    };
+    let decoded = contract::Mint::decode_log_data(log.data(), true)
+        .map_err(|e| DecodeLogError::DecodeError(e.to_string()))?;
+    let name = String::from_utf8_lossy(&decoded.label).to_string();
+    if !valid_name(&name) {
+        return Err(DecodeLogError::InvalidName(name));
+    }
+    match resolve_parent(log, None).await {
+        Some(parent_path) => Ok(Mint { name, parent_path }),
+        None => Err(DecodeLogError::UnresolvedParent(name)),
+    }
+}
+
 /// Decode a note log from the hypermap into a 'resolved' format.
 ///
 /// Uses [`valid_name()`] to check if the name is valid.
+#[cfg(not(feature = "hyperapp"))]
 pub fn decode_note_log(log: &crate::eth::Log) -> Result<Note, DecodeLogError> {
     let contract::Note::SIGNATURE_HASH = log.topics()[0] else {
         return Err(DecodeLogError::UnexpectedTopic(log.topics()[0]));
@@ -411,6 +433,31 @@ pub fn decode_note_log(log: &crate::eth::Log) -> Result<Note, DecodeLogError> {
     }
 }
 
+/// Decode a note log from the hypermap into a 'resolved' format.
+///
+/// Uses [`valid_name()`] to check if the name is valid.
+#[cfg(feature = "hyperapp")]
+pub async fn decode_note_log(log: &crate::eth::Log) -> Result<Note, DecodeLogError> {
+    let contract::Note::SIGNATURE_HASH = log.topics()[0] else {
+        return Err(DecodeLogError::UnexpectedTopic(log.topics()[0]));
+    };
+    let decoded = contract::Note::decode_log_data(log.data(), true)
+        .map_err(|e| DecodeLogError::DecodeError(e.to_string()))?;
+    let note = String::from_utf8_lossy(&decoded.label).to_string();
+    if !valid_note(&note) {
+        return Err(DecodeLogError::InvalidName(note));
+    }
+    match resolve_parent(log, None).await {
+        Some(parent_path) => Ok(Note {
+            note,
+            parent_path,
+            data: decoded.data,
+        }),
+        None => Err(DecodeLogError::UnresolvedParent(note)),
+    }
+}
+
+#[cfg(not(feature = "hyperapp"))]
 pub fn decode_fact_log(log: &crate::eth::Log) -> Result<Fact, DecodeLogError> {
     let contract::Fact::SIGNATURE_HASH = log.topics()[0] else {
         return Err(DecodeLogError::UnexpectedTopic(log.topics()[0]));
@@ -431,20 +478,85 @@ pub fn decode_fact_log(log: &crate::eth::Log) -> Result<Fact, DecodeLogError> {
     }
 }
 
+#[cfg(feature = "hyperapp")]
+pub async fn decode_fact_log(log: &crate::eth::Log) -> Result<Fact, DecodeLogError> {
+    let contract::Fact::SIGNATURE_HASH = log.topics()[0] else {
+        return Err(DecodeLogError::UnexpectedTopic(log.topics()[0]));
+    };
+    let decoded = contract::Fact::decode_log_data(log.data(), true)
+        .map_err(|e| DecodeLogError::DecodeError(e.to_string()))?;
+    let fact = String::from_utf8_lossy(&decoded.label).to_string();
+    if !valid_fact(&fact) {
+        return Err(DecodeLogError::InvalidName(fact));
+    }
+    match resolve_parent(log, None).await {
+        Some(parent_path) => Ok(Fact {
+            fact,
+            parent_path,
+            data: decoded.data,
+        }),
+        None => Err(DecodeLogError::UnresolvedParent(fact)),
+    }
+}
+
 /// Given a [`crate::eth::Log`] (which must be a log from hypermap), resolve the parent name
 /// of the new entry or note.
+#[cfg(not(feature = "hyperapp"))]
 pub fn resolve_parent(log: &crate::eth::Log, timeout: Option<u64>) -> Option<String> {
     let parent_hash = log.topics()[1].to_string();
     net::get_name(&parent_hash, log.block_number, timeout)
+}
+
+/// Given a [`crate::eth::Log`] (which must be a log from hypermap), resolve the parent name
+/// of the new entry or note.
+#[cfg(feature = "hyperapp")]
+pub async fn resolve_parent(log: &crate::eth::Log, timeout: Option<u64>) -> Option<String> {
+    let parent_hash = log.topics()[1].to_string();
+    net::get_name(&parent_hash, log.block_number, timeout).await
 }
 
 /// Given a [`crate::eth::Log`] (which must be a log from hypermap), resolve the full name
 /// of the new entry or note.
 ///
 /// Uses [`valid_name()`] to check if the name is valid.
+#[cfg(not(feature = "hyperapp"))]
 pub fn resolve_full_name(log: &crate::eth::Log, timeout: Option<u64>) -> Option<String> {
     let parent_hash = log.topics()[1].to_string();
     let parent_name = net::get_name(&parent_hash, log.block_number, timeout)?;
+    let log_name = match log.topics()[0] {
+        contract::Mint::SIGNATURE_HASH => {
+            let decoded = contract::Mint::decode_log_data(log.data(), true).unwrap();
+            decoded.label
+        }
+        contract::Note::SIGNATURE_HASH => {
+            let decoded = contract::Note::decode_log_data(log.data(), true).unwrap();
+            decoded.label
+        }
+        contract::Fact::SIGNATURE_HASH => {
+            let decoded = contract::Fact::decode_log_data(log.data(), true).unwrap();
+            decoded.label
+        }
+        _ => return None,
+    };
+    let name = String::from_utf8_lossy(&log_name);
+    if !valid_entry(
+        &name,
+        log.topics()[0] == contract::Note::SIGNATURE_HASH,
+        log.topics()[0] == contract::Fact::SIGNATURE_HASH,
+    ) {
+        return None;
+    }
+    Some(format!("{name}.{parent_name}"))
+}
+
+/// Given a [`crate::eth::Log`] (which must be a log from hypermap), resolve the full name
+/// of the new entry or note.
+///
+/// Uses [`valid_name()`] to check if the name is valid.
+#[cfg(feature = "hyperapp")]
+pub async fn resolve_full_name(log: &crate::eth::Log, timeout: Option<u64>) -> Option<String> {
+    let parent_hash = log.topics()[1].to_string();
+    let parent_name = net::get_name(&parent_hash, log.block_number, timeout).await?;
     let log_name = match log.topics()[0] {
         contract::Mint::SIGNATURE_HASH => {
             let decoded = contract::Mint::decode_log_data(log.data(), true).unwrap();
@@ -947,6 +1059,7 @@ impl Hypermap {
         ))
     }
 
+    #[cfg(not(feature = "hyperapp"))]
     pub fn validate_log_cache(&self, log_cache: &LogCache) -> anyhow::Result<bool> {
         let from_block = log_cache.metadata.from_block.parse::<u64>().map_err(|_| {
             anyhow::anyhow!(
@@ -978,6 +1091,40 @@ impl Hypermap {
         )?)
     }
 
+    #[cfg(feature = "hyperapp")]
+    pub async fn validate_log_cache(&self, log_cache: &LogCache) -> anyhow::Result<bool> {
+        let from_block = log_cache.metadata.from_block.parse::<u64>().map_err(|_| {
+            anyhow::anyhow!(
+                "Invalid from_block in metadata: {}",
+                log_cache.metadata.from_block
+            )
+        })?;
+        let to_block = log_cache.metadata.to_block.parse::<u64>().map_err(|_| {
+            anyhow::anyhow!(
+                "Invalid to_block in metadata: {}",
+                log_cache.metadata.to_block
+            )
+        })?;
+
+        let mut bytes_to_verify = serde_json::to_vec(&log_cache.logs)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize logs for validation: {:?}", e))?;
+        bytes_to_verify.extend_from_slice(&from_block.to_be_bytes());
+        bytes_to_verify.extend_from_slice(&to_block.to_be_bytes());
+        let hashed_data = keccak256(&bytes_to_verify);
+
+        let signature_hex = log_cache.metadata.signature.trim_start_matches("0x");
+        let signature_bytes = hex::decode(signature_hex)
+            .map_err(|e| anyhow::anyhow!("Failed to decode hex signature: {:?}", e))?;
+
+        Ok(sign::net_key_verify(
+            hashed_data.to_vec(),
+            &log_cache.metadata.created_by.parse::<HyperAddress>()?,
+            signature_bytes,
+        )
+        .await?)
+    }
+
+    #[cfg(not(feature = "hyperapp"))]
     pub fn get_bootstrap(
         &self,
         from_block: Option<u64>,
@@ -1057,6 +1204,89 @@ impl Hypermap {
         Ok((block, unique_logs))
     }
 
+    #[cfg(feature = "hyperapp")]
+    pub async fn get_bootstrap(
+        &self,
+        from_block: Option<u64>,
+        retry_params: Option<(u64, Option<u64>)>,
+        chain: Option<String>,
+    ) -> anyhow::Result<(u64, Vec<EthLog>)> {
+        print_to_terminal(
+            2,
+            &format!(
+                "get_bootstrap: from_block={:?}, retry_params={:?}, chain={:?}",
+                from_block, retry_params, chain,
+            ),
+        );
+        let (block, log_caches) = self.get_bootstrap_log_cache(from_block, retry_params, chain)?;
+
+        let mut all_valid_logs: Vec<EthLog> = Vec::new();
+        let request_from_block_val = from_block.unwrap_or(0);
+
+        for log_cache in log_caches {
+            match self.validate_log_cache(&log_cache).await {
+                Ok(true) => {
+                    for log in log_cache.logs {
+                        if let Some(log_block_number) = log.block_number {
+                            if log_block_number >= request_from_block_val {
+                                all_valid_logs.push(log);
+                            }
+                        } else {
+                            if from_block.is_none() {
+                                all_valid_logs.push(log);
+                            }
+                        }
+                    }
+                }
+                Ok(false) => {
+                    print_to_terminal(
+                        1,
+                        &format!("LogCache validation failed for cache created by {}. Discarding {} logs.",
+                        log_cache.metadata.created_by,
+                        log_cache.logs.len())
+                    );
+                }
+                Err(e) => {
+                    print_to_terminal(
+                        1,
+                        &format!(
+                            "Error validating LogCache from {}: {:?}. Discarding {} logs.",
+                            log_cache.metadata.created_by,
+                            e,
+                            log_cache.logs.len()
+                        ),
+                    );
+                }
+            }
+        }
+
+        all_valid_logs.sort_by(|a, b| {
+            let block_cmp = a.block_number.cmp(&b.block_number);
+            if block_cmp == std::cmp::Ordering::Equal {
+                std::cmp::Ordering::Equal
+            } else {
+                block_cmp
+            }
+        });
+
+        let mut unique_logs = Vec::new();
+        for log in all_valid_logs {
+            if !unique_logs.contains(&log) {
+                unique_logs.push(log);
+            }
+        }
+
+        print_to_terminal(
+            2,
+            &format!(
+                "get_bootstrap: Consolidated {} unique logs.",
+                unique_logs.len(),
+            ),
+        );
+        Ok((block, unique_logs))
+    }
+
+    #[cfg(not(feature = "hyperapp"))]
     pub fn bootstrap(
         &self,
         from_block: Option<u64>,
@@ -1076,6 +1306,45 @@ impl Hypermap {
         );
 
         let (block, consolidated_logs) = self.get_bootstrap(from_block, retry_params, chain)?;
+
+        if consolidated_logs.is_empty() {
+            print_to_terminal(2,"bootstrap: No logs retrieved after consolidation. Returning empty results for filters.");
+            return Ok((block, filters.iter().map(|_| Vec::new()).collect()));
+        }
+
+        let mut results_per_filter: Vec<Vec<EthLog>> = Vec::new();
+        for filter in filters {
+            let filtered_logs = eth_apply_filter(&consolidated_logs, &filter);
+            results_per_filter.push(filtered_logs);
+        }
+
+        print_to_terminal(
+            2,
+            &format!(
+                "bootstrap: Applied {} filters to bootstrapped logs.",
+                results_per_filter.len(),
+            ),
+        );
+        Ok((block, results_per_filter))
+    }
+
+    #[cfg(feature = "hyperapp")]
+    pub async fn bootstrap(
+        &self,
+        from_block: Option<u64>,
+        filters: Vec<EthFilter>,
+        retry_params: Option<(u64, Option<u64>)>,
+        chain: Option<String>,
+    ) -> anyhow::Result<(u64, Vec<Vec<EthLog>>)> {
+        print_to_terminal(
+            2,
+            &format!(
+                "bootstrap: from_block={:?}, filters={:?}, retry_params={:?}, chain={:?}",
+                from_block, filters, retry_params, chain,
+            ),
+        );
+        let (block, consolidated_logs) =
+            self.get_bootstrap(from_block, retry_params, chain).await?;
 
         if consolidated_logs.is_empty() {
             print_to_terminal(2,"bootstrap: No logs retrieved after consolidation. Returning empty results for filters.");

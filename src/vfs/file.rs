@@ -3,6 +3,9 @@ use super::{
 };
 use crate::{get_blob, PackageId};
 
+#[cfg(feature = "hyperapp")]
+pub mod file_async;
+
 /// VFS (Virtual File System) helper struct for a file.
 /// Opening or creating a `File` will give you a `Result<File, VfsError>`.
 /// You can call its impl functions to interact with it.
@@ -366,6 +369,7 @@ pub fn create_file(path: &str, timeout: Option<u64>) -> Result<File, VfsError> {
 }
 
 /// Removes a file at path, errors if path not found or path is not a file.
+#[cfg(not(feature = "hyperapp"))]
 pub fn remove_file(path: &str, timeout: Option<u64>) -> Result<(), VfsError> {
     let timeout = timeout.unwrap_or(5);
 
@@ -382,4 +386,10 @@ pub fn remove_file(path: &str, timeout: Option<u64>) -> Result<(), VfsError> {
             path: path.to_string(),
         }),
     }
+}
+
+/// Removes a file at path, errors if path not found or path is not a file.
+#[cfg(feature = "hyperapp")]
+pub async fn remove_file(path: &str, timeout: Option<u64>) -> Result<(), VfsError> {
+    file_async::remove_file_async(path, timeout).await
 }
