@@ -8,8 +8,7 @@ pub struct DirectoryAsync {
 
 impl DirectoryAsync {
     pub async fn read(&self) -> Result<Vec<DirEntry>, VfsError> {
-        let request = vfs_request(&self.path, VfsAction::ReadDir)
-            .expects_response(self.timeout);
+        let request = vfs_request(&self.path, VfsAction::ReadDir).expects_response(self.timeout);
 
         let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
             .await
@@ -26,11 +25,14 @@ impl DirectoryAsync {
     }
 }
 
-pub async fn open_dir_async(path: &str, create: bool, timeout: Option<u64>) -> Result<DirectoryAsync, VfsError> {
+pub async fn open_dir_async(
+    path: &str,
+    create: bool,
+    timeout: Option<u64>,
+) -> Result<DirectoryAsync, VfsError> {
     let timeout = timeout.unwrap_or(5);
     if !create {
-        let request = vfs_request(path, VfsAction::Metadata)
-            .expects_response(timeout);
+        let request = vfs_request(path, VfsAction::Metadata).expects_response(timeout);
 
         let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
             .await
@@ -59,8 +61,7 @@ pub async fn open_dir_async(path: &str, create: bool, timeout: Option<u64>) -> R
         });
     }
 
-    let request = vfs_request(path, VfsAction::CreateDirAll)
-        .expects_response(timeout);
+    let request = vfs_request(path, VfsAction::CreateDirAll).expects_response(timeout);
 
     let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
         .await
@@ -82,8 +83,7 @@ pub async fn open_dir_async(path: &str, create: bool, timeout: Option<u64>) -> R
 pub async fn remove_dir_async(path: &str, timeout: Option<u64>) -> Result<(), VfsError> {
     let timeout = timeout.unwrap_or(5);
 
-    let request = vfs_request(path, VfsAction::RemoveDir)
-        .expects_response(timeout);
+    let request = vfs_request(path, VfsAction::RemoveDir).expects_response(timeout);
 
     let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
         .await
