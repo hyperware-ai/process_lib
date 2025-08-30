@@ -148,13 +148,14 @@ impl Executor {
     }
 
     pub fn poll_all_tasks(&mut self) {
-        let mut completed = Vec::new();
-
         loop {
+            // Drain any newly spawned tasks into our task list
             SPAWN_QUEUE.with(|queue| {
                 self.tasks.append(&mut queue.borrow_mut());
             });
 
+            // Poll all tasks, collecting completed ones
+            let mut completed = Vec::new();
             let mut ctx = Context::from_waker(noop_waker_ref());
 
             for i in 0..self.tasks.len() {
@@ -163,18 +164,18 @@ impl Executor {
                 }
             }
 
-            // tasks can spawn more tasks
-            let should_break = SPAWN_QUEUE.with(|queue| {
-                let queue = queue.borrow();
-                queue.is_empty()
-            });
-            if should_break {
+            // Remove completed tasks immediately to prevent re-polling
+            for idx in completed.into_iter().rev() {
+                let _ = self.tasks.remove(idx);
+            }
+
+            // Check if there are new tasks spawned during polling
+            let has_new_tasks = SPAWN_QUEUE.with(|queue| !queue.borrow().is_empty());
+
+            // Continue if new tasks were spawned, otherwise we're done
+            if !has_new_tasks {
                 break;
             }
-        }
-
-        for idx in completed.into_iter().rev() {
-            let _ = self.tasks.remove(idx);
         }
     }
 }
