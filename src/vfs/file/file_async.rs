@@ -1,6 +1,4 @@
-use super::{
-    vfs_request, FileMetadata, SeekFrom, VfsAction, VfsError, VfsResponse,
-};
+use super::{vfs_request, FileMetadata, SeekFrom, VfsAction, VfsError, VfsResponse};
 use crate::{get_blob, hyperapp, PackageId};
 
 #[derive(serde::Deserialize, serde::Serialize)]
