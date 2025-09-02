@@ -1,6 +1,4 @@
-use super::{
-    parse_response, vfs_request, FileMetadata, SeekFrom, VfsAction, VfsError, VfsResponse,
-};
+use super::{vfs_request, FileMetadata, SeekFrom, VfsAction, VfsError, VfsResponse};
 use crate::{get_blob, hyperapp, PackageId};
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -20,11 +18,11 @@ impl FileAsync {
     pub async fn read(&self) -> Result<Vec<u8>, VfsError> {
         let request = vfs_request(&self.path, VfsAction::Read).expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
-            .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+            .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::Read => {
                 let data = match get_blob() {
                     Some(bytes) => bytes.bytes,
@@ -48,11 +46,11 @@ impl FileAsync {
     pub async fn read_into(&self, buffer: &mut [u8]) -> Result<usize, VfsError> {
         let request = vfs_request(&self.path, VfsAction::Read).expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
-            .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+            .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::Read => {
                 let data = get_blob().unwrap_or_default().bytes;
                 let len = std::cmp::min(data.len(), buffer.len());
@@ -73,11 +71,11 @@ impl FileAsync {
         let request =
             vfs_request(&self.path, VfsAction::ReadExact { length }).expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
-            .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+            .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::Read => {
                 let data = get_blob().unwrap_or_default().bytes;
                 let len = std::cmp::min(data.len(), buffer.len());
@@ -95,11 +93,11 @@ impl FileAsync {
     pub async fn read_to_end(&self) -> Result<Vec<u8>, VfsError> {
         let request = vfs_request(&self.path, VfsAction::ReadToEnd).expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
-            .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+            .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::Read => Ok(get_blob().unwrap_or_default().bytes),
             VfsResponse::Err(e) => Err(e),
             _ => Err(VfsError::ParseError {
@@ -113,11 +111,11 @@ impl FileAsync {
         let request =
             vfs_request(&self.path, VfsAction::ReadToString).expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
-            .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+            .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::ReadToString(s) => Ok(s),
             VfsResponse::Err(e) => Err(e),
             _ => Err(VfsError::ParseError {
@@ -132,11 +130,11 @@ impl FileAsync {
             .blob_bytes(buffer)
             .expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
-            .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+            .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::Ok => Ok(()),
             VfsResponse::Err(e) => Err(e),
             _ => Err(VfsError::ParseError {
@@ -151,11 +149,11 @@ impl FileAsync {
             .blob_bytes(buffer)
             .expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
-            .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+            .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::Ok => Ok(()),
             VfsResponse::Err(e) => Err(e),
             _ => Err(VfsError::ParseError {
@@ -170,11 +168,11 @@ impl FileAsync {
             .blob_bytes(buffer)
             .expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
-            .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+            .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::Ok => Ok(()),
             VfsResponse::Err(e) => Err(e),
             _ => Err(VfsError::ParseError {
@@ -187,11 +185,11 @@ impl FileAsync {
     pub async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError> {
         let request = vfs_request(&self.path, VfsAction::Seek(pos)).expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
-            .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+            .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::SeekFrom {
                 new_offset: new_pos,
             } => Ok(new_pos),
@@ -212,11 +210,11 @@ impl FileAsync {
         )
         .expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
-            .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+            .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::Ok => Ok(FileAsync {
                 path: path.to_string(),
                 timeout: self.timeout,
@@ -233,11 +231,11 @@ impl FileAsync {
         let request =
             vfs_request(&self.path, VfsAction::SetLen(size)).expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
-            .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+            .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::Ok => Ok(()),
             VfsResponse::Err(e) => Err(e),
             _ => Err(VfsError::ParseError {
@@ -250,11 +248,11 @@ impl FileAsync {
     pub async fn metadata(&self) -> Result<FileMetadata, VfsError> {
         let request = vfs_request(&self.path, VfsAction::Metadata).expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
-            .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+            .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::Metadata(metadata) => Ok(metadata),
             VfsResponse::Err(e) => Err(e),
             _ => Err(VfsError::ParseError {
@@ -267,11 +265,11 @@ impl FileAsync {
     pub async fn sync_all(&self) -> Result<(), VfsError> {
         let request = vfs_request(&self.path, VfsAction::SyncAll).expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
-            .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+            .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::Ok => Ok(()),
             VfsResponse::Err(e) => Err(e),
             _ => Err(VfsError::ParseError {
@@ -300,11 +298,11 @@ pub async fn create_drive_async(
 
     let request = vfs_request(&path, VfsAction::CreateDrive).expects_response(timeout);
 
-    let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+    let response = hyperapp::send::<VfsResponse>(request)
         .await
-        .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+        .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-    match parse_response(&resp_bytes)? {
+    match response {
         VfsResponse::Ok => Ok(path),
         VfsResponse::Err(e) => Err(e),
         _ => Err(VfsError::ParseError {
@@ -323,11 +321,11 @@ pub async fn open_file_async(
 
     let request = vfs_request(path, VfsAction::OpenFile { create }).expects_response(timeout);
 
-    let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+    let response = hyperapp::send::<VfsResponse>(request)
         .await
-        .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+        .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-    match parse_response(&resp_bytes)? {
+    match response {
         VfsResponse::Ok => Ok(FileAsync {
             path: path.to_string(),
             timeout,
@@ -345,11 +343,11 @@ pub async fn create_file_async(path: &str, timeout: Option<u64>) -> Result<FileA
 
     let request = vfs_request(path, VfsAction::CreateFile).expects_response(timeout);
 
-    let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+    let response = hyperapp::send::<VfsResponse>(request)
         .await
-        .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+        .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-    match parse_response(&resp_bytes)? {
+    match response {
         VfsResponse::Ok => Ok(FileAsync {
             path: path.to_string(),
             timeout,
@@ -367,11 +365,11 @@ pub async fn remove_file_async(path: &str, timeout: Option<u64>) -> Result<(), V
 
     let request = vfs_request(path, VfsAction::RemoveFile).expects_response(timeout);
 
-    let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+    let response = hyperapp::send::<VfsResponse>(request)
         .await
-        .map_err(|e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+        .map_err(|_e| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-    match parse_response(&resp_bytes)? {
+    match response {
         VfsResponse::Ok => Ok(()),
         VfsResponse::Err(e) => Err(e.into()),
         _ => Err(VfsError::ParseError {
