@@ -47,10 +47,12 @@ pub async fn open_dir_async(
                 }
             }
             VfsResponse::Err(e) => return Err(e),
-            _ => return Err(VfsError::ParseError {
-                error: "unexpected response".to_string(),
-                path: path.to_string(),
-            }),
+            _ => {
+                return Err(VfsError::ParseError {
+                    error: "unexpected response".to_string(),
+                    path: path.to_string(),
+                })
+            }
         }
 
         return Ok(DirectoryAsync {
