@@ -1,4 +1,4 @@
-use super::{parse_response, vfs_request, DirEntry, FileType, VfsAction, VfsError, VfsResponse};
+use super::{vfs_request, DirEntry, FileType, VfsAction, VfsError, VfsResponse};
 use crate::hyperapp;
 
 pub struct DirectoryAsync {
@@ -10,16 +10,16 @@ impl DirectoryAsync {
     pub async fn read(&self) -> Result<Vec<DirEntry>, VfsError> {
         let request = vfs_request(&self.path, VfsAction::ReadDir).expects_response(self.timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
             .map_err(|_| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::ReadDir(entries) => Ok(entries),
             VfsResponse::Err(e) => Err(e),
             _ => Err(VfsError::ParseError {
                 error: "unexpected response".to_string(),
-                path: self.path.clone(),
+                path: self.path.to_string(),
             }),
         }
     }
@@ -34,11 +34,11 @@ pub async fn open_dir_async(
     if !create {
         let request = vfs_request(path, VfsAction::Metadata).expects_response(timeout);
 
-        let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+        let response = hyperapp::send::<VfsResponse>(request)
             .await
             .map_err(|_| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-        match parse_response(&resp_bytes)? {
+        match response {
             VfsResponse::Metadata(m) => {
                 if m.file_type != FileType::Directory {
                     return Err(VfsError::IOError(
@@ -63,11 +63,11 @@ pub async fn open_dir_async(
 
     let request = vfs_request(path, VfsAction::CreateDirAll).expects_response(timeout);
 
-    let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+    let response = hyperapp::send::<VfsResponse>(request)
         .await
         .map_err(|_| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-    match parse_response(&resp_bytes)? {
+    match response {
         VfsResponse::Ok => Ok(DirectoryAsync {
             path: path.to_string(),
             timeout,
@@ -85,11 +85,11 @@ pub async fn remove_dir_async(path: &str, timeout: Option<u64>) -> Result<(), Vf
 
     let request = vfs_request(path, VfsAction::RemoveDir).expects_response(timeout);
 
-    let resp_bytes = hyperapp::send_rmp::<Vec<u8>>(request)
+    let response = hyperapp::send::<VfsResponse>(request)
         .await
         .map_err(|_| VfsError::SendError(crate::SendErrorKind::Timeout))?;
 
-    match parse_response(&resp_bytes)? {
+    match response {
         VfsResponse::Ok => Ok(()),
         VfsResponse::Err(e) => Err(e),
         _ => Err(VfsError::ParseError {
