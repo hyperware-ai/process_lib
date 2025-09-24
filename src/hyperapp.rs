@@ -396,12 +396,17 @@ where
 
 pub fn setup_server(
     ui_config: Option<&HttpBindingConfig>,
+    ui_path: Option<String>,
     endpoints: &[Binding],
 ) -> http::server::HttpServer {
     let mut server = http::server::HttpServer::new(5);
 
     if let Some(ui) = ui_config {
-        if let Err(e) = server.serve_ui("ui", vec!["/"], ui.clone()) {
+        if let Err(e) = server.serve_ui(
+            &ui_path.unwrap_or_else(|| "ui".to_string()),
+            vec!["/"],
+            ui.clone(),
+        ) {
             panic!("failed to serve UI: {e}. Make sure that a ui folder is in /pkg");
         }
     }
