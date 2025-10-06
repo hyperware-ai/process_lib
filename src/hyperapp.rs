@@ -37,7 +37,7 @@ thread_local! {
 pub struct HttpRequestContext {
     pub request: IncomingHttpRequest,
     pub response_headers: HashMap<String, String>,
-    pub response_status: u16,
+    pub response_status: http::StatusCode,
 }
 
 pub struct AppContext {
@@ -97,7 +97,7 @@ pub fn add_response_header(key: String, value: String) {
 }
 
 // Set the HTTP response status code
-pub fn set_response_status(status: u16) {
+pub fn set_response_status(status: http::StatusCode) {
     APP_HELPERS.with(|helpers| {
         if let Some(ctx) = &mut helpers.borrow_mut().current_http_context {
             ctx.response_status = status;
