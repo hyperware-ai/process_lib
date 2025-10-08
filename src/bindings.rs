@@ -29,7 +29,7 @@ use std::str::FromStr;
 
 /// bindings data deployment address on base
 #[cfg(not(feature = "simulation-mode"))]
-pub const BINDINGS_ADDRESS: &'static str = "0x0000000000000000000000000000000000000000";
+pub const BINDINGS_ADDRESS: &'static str = "0x0000000000e8d224B902632757d5dbc51a451456";
 #[cfg(feature = "simulation-mode")]
 pub const BINDINGS_ADDRESS: &'static str = "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318";
 #[cfg(not(feature = "simulation-mode"))]
@@ -38,7 +38,7 @@ pub const BINDINGS_CHAIN_ID: u64 = 8453; // base
 pub const BINDINGS_CHAIN_ID: u64 = 31337; // fakenet
 /// first block (minus one) of tokenregistry deployment on base
 #[cfg(not(feature = "simulation-mode"))]
-pub const BINDINGS_FIRST_BLOCK: u64 = 27_270_411;
+pub const BINDINGS_FIRST_BLOCK: u64 = 36_283_831;
 #[cfg(feature = "simulation-mode")]
 pub const BINDINGS_FIRST_BLOCK: u64 = 0;
 /// the root hash of tokenregistry, empty bytes32
