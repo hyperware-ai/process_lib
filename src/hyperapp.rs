@@ -37,6 +37,7 @@ thread_local! {
 pub struct HttpRequestContext {
     pub request: IncomingHttpRequest,
     pub response_headers: HashMap<String, String>,
+    pub response_status: http::StatusCode,
 }
 
 pub struct AppContext {
@@ -91,6 +92,15 @@ pub fn add_response_header(key: String, value: String) {
     APP_HELPERS.with(|helpers| {
         if let Some(ctx) = &mut helpers.borrow_mut().current_http_context {
             ctx.response_headers.insert(key, value);
+        }
+    })
+}
+
+// Set the HTTP response status code
+pub fn set_response_status(status: http::StatusCode) {
+    APP_HELPERS.with(|helpers| {
+        if let Some(ctx) = &mut helpers.borrow_mut().current_http_context {
+            ctx.response_status = status;
         }
     })
 }
@@ -267,9 +277,16 @@ where
         return Ok(r);
     }
 
-    let e = serde_json::from_slice::<SendError>(&response_bytes)
-        .expect("Failed to deserialize response to send()");
-    return Err(AppSendError::SendError(e));
+    match serde_json::from_slice::<SendError>(&response_bytes) {
+        Ok(e) => Err(AppSendError::SendError(e)),
+        Err(err) => {
+            error!(
+                "Failed to deserialize response in send(): {} (payload: {:?})",
+                err, response_bytes
+            );
+            Err(AppSendError::BuildError(BuildError::NoBody))
+        }
+    }
 }
 
 pub async fn send_rmp<R>(request: Request) -> Result<R, AppSendError>
@@ -292,9 +309,16 @@ where
         return Ok(r);
     }
 
-    let e = rmp_serde::from_slice::<SendError>(&response_bytes)
-        .expect("Failed to deserialize response to send()");
-    return Err(AppSendError::SendError(e));
+    match rmp_serde::from_slice::<SendError>(&response_bytes) {
+        Ok(e) => Err(AppSendError::SendError(e)),
+        Err(err) => {
+            error!(
+                "Failed to deserialize response in send_rmp(): {} (payload: {:?})",
+                err, response_bytes
+            );
+            Err(AppSendError::BuildError(BuildError::NoBody))
+        }
+    }
 }
 
 // Enum defining the state persistance behaviour
