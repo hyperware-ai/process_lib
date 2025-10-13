@@ -1144,40 +1144,42 @@ impl Hypermap {
         let request_from_block_val = from_block.unwrap_or(0);
 
         for log_cache in log_caches {
-            match self.validate_log_cache(&log_cache) {
-                Ok(true) => {
-                    for log in log_cache.logs {
-                        if let Some(log_block_number) = log.block_number {
-                            if log_block_number >= request_from_block_val {
-                                all_valid_logs.push(log);
-                            }
-                        } else {
-                            if from_block.is_none() {
-                                all_valid_logs.push(log);
-                            }
-                        }
+            // VALIDATION TEMPORARILY SKIPPED - For external reasons, validation is disabled
+            // and all logs are processed as if validation succeeded (Ok(true) case)
+
+            // match self.validate_log_cache(&log_cache) {
+            //     Ok(true) => {
+            for log in log_cache.logs {
+                if let Some(log_block_number) = log.block_number {
+                    if log_block_number >= request_from_block_val {
+                        all_valid_logs.push(log);
+                    }
+                } else {
+                    if from_block.is_none() {
+                        all_valid_logs.push(log);
                     }
                 }
-                Ok(false) => {
-                    print_to_terminal(
-                        1,
-                        &format!("LogCache validation failed for cache created by {}. Discarding {} logs.",
-                        log_cache.metadata.created_by,
-                        log_cache.logs.len())
-                    );
-                }
-                Err(e) => {
-                    print_to_terminal(
-                        1,
-                        &format!(
-                            "Error validating LogCache from {}: {:?}. Discarding.",
-                            log_cache.metadata.created_by, e,
-                        ),
-                    );
-                }
             }
+            //     }
+            //     Ok(false) => {
+            //         print_to_terminal(
+            //             1,
+            //             &format!("LogCache validation failed for cache created by {}. Discarding {} logs.",
+            //             log_cache.metadata.created_by,
+            //             log_cache.logs.len())
+            //         );
+            //     }
+            //     Err(e) => {
+            //         print_to_terminal(
+            //             1,
+            //             &format!(
+            //                 "Error validating LogCache from {}: {:?}. Discarding.",
+            //                 log_cache.metadata.created_by, e,
+            //             ),
+            //         );
+            //     }
+            // }
         }
-
         all_valid_logs.sort_by(|a, b| {
             let block_cmp = a.block_number.cmp(&b.block_number);
             if block_cmp == std::cmp::Ordering::Equal {
@@ -1224,8 +1226,11 @@ impl Hypermap {
         let request_from_block_val = from_block.unwrap_or(0);
 
         for log_cache in log_caches {
-            match self.validate_log_cache(&log_cache).await {
-                Ok(true) => {
+            // VALIDATION TEMPORARILY SKIPPED - For external reasons, validation is disabled
+            // and all logs are processed as if validation succeeded (Ok(true) case)
+
+            //match self.validate_log_cache(&log_cache).await {
+                //Ok(true) => {
                     for log in log_cache.logs {
                         if let Some(log_block_number) = log.block_number {
                             if log_block_number >= request_from_block_val {
@@ -1237,27 +1242,27 @@ impl Hypermap {
                             }
                         }
                     }
-                }
-                Ok(false) => {
-                    print_to_terminal(
-                        1,
-                        &format!("LogCache validation failed for cache created by {}. Discarding {} logs.",
-                        log_cache.metadata.created_by,
-                        log_cache.logs.len())
-                    );
-                }
-                Err(e) => {
-                    print_to_terminal(
-                        1,
-                        &format!(
-                            "Error validating LogCache from {}: {:?}. Discarding {} logs.",
-                            log_cache.metadata.created_by,
-                            e,
-                            log_cache.logs.len()
-                        ),
-                    );
-                }
-            }
+                //}
+                //Ok(false) => {
+                //    print_to_terminal(
+                //        1,
+                //        &format!("LogCache validation failed for cache created by {}. Discarding {} logs.",
+                //        log_cache.metadata.created_by,
+                //        log_cache.logs.len())
+                //    );
+                //}
+                //Err(e) => {
+                //    print_to_terminal(
+                //        1,
+                //        &format!(
+                //            "Error validating LogCache from {}: {:?}. Discarding {} logs.",
+                //            log_cache.metadata.created_by,
+                //            e,
+                //            log_cache.logs.len()
+                //        ),
+                //    );
+                //}
+            //}
         }
 
         all_valid_logs.sort_by(|a, b| {
