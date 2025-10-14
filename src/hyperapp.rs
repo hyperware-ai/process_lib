@@ -10,6 +10,7 @@ use crate::{
     logging::{error, info},
     set_state, timer, Address, BuildError, LazyLoadBlob, Message, Request, SendError,
 };
+use futures_channel::oneshot;
 use futures_util::task::noop_waker_ref;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -25,6 +26,9 @@ thread_local! {
     });
 
     pub static RESPONSE_REGISTRY: RefCell<HashMap<String, Vec<u8>>> = RefCell::new(HashMap::new());
+
+    pub static PENDING_ONESHOTS: RefCell<HashMap<String, OneshotSender>> =
+        RefCell::new(HashMap::new());
 
     pub static APP_HELPERS: RefCell<AppHelpers> = RefCell::new(AppHelpers {
         current_server: None,
@@ -231,6 +235,90 @@ impl Future for ResponseFuture {
         } else {
             Poll::Pending
         }
+    }
+}
+
+struct OneshotSender {
+    sender: oneshot::Sender<Vec<u8>>,
+}
+
+pub struct PendingOneshotResponse {
+    id: String,
+    receiver: oneshot::Receiver<Vec<u8>>,
+    http_context: Option<HttpRequestContext>,
+}
+
+fn capture_http_context() -> Option<HttpRequestContext> {
+    APP_HELPERS.with(|helpers| helpers.borrow().current_http_context.clone())
+}
+
+fn restore_http_context(context: &Option<HttpRequestContext>) {
+    if let Some(ctx) = context {
+        APP_HELPERS.with(|helpers| {
+            helpers.borrow_mut().current_http_context = Some(ctx.clone());
+        });
+    }
+}
+
+pub fn register_pending_oneshot_response(id: impl Into<String>) -> PendingOneshotResponse {
+    let id = id.into();
+    let http_context = capture_http_context();
+    let (sender, receiver) = oneshot::channel();
+
+    PENDING_ONESHOTS.with(|map: &RefCell<HashMap<String, OneshotSender>>| {
+        let mut map = map.borrow_mut();
+        if map
+            .insert(id.clone(), OneshotSender { sender })
+            .is_some()
+        {
+            error!("Pending response registration clobbered existing entry for id {id}");
+        }
+    });
+
+    PendingOneshotResponse {
+        id,
+        receiver,
+        http_context,
+    }
+}
+
+pub fn deliver_pending_oneshot_response(id: &str, payload: Vec<u8>) -> bool {
+    PENDING_ONESHOTS
+        .with(|map| map.borrow_mut().remove(id))
+        .map(|pending| pending.sender.send(payload).is_ok())
+        .unwrap_or(false)
+}
+
+
+#[derive(Debug, Error)]
+pub enum OneshotResponseError {
+    #[error("pending response {0} was cancelled before completion")]
+    Cancelled(String),
+}
+
+impl Future for PendingOneshotResponse {
+    type Output = Result<Vec<u8>, OneshotResponseError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        match Pin::new(&mut this.receiver).poll(cx) {
+            Poll::Ready(Ok(bytes)) => {
+                restore_http_context(&this.http_context);
+                Poll::Ready(Ok(bytes))
+            }
+            Poll::Ready(Err(_)) => {
+                Poll::Ready(Err(OneshotResponseError::Cancelled(this.id.clone())))
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl Drop for PendingOneshotResponse {
+    fn drop(&mut self) {
+        PENDING_ONESHOTS.with(|map| {
+            map.borrow_mut().remove(&self.id);
+        });
     }
 }
 
