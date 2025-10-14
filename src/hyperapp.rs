@@ -267,10 +267,7 @@ pub fn register_pending_oneshot_response(id: impl Into<String>) -> PendingOnesho
 
     PENDING_ONESHOTS.with(|map: &RefCell<HashMap<String, OneshotSender>>| {
         let mut map = map.borrow_mut();
-        if map
-            .insert(id.clone(), OneshotSender { sender })
-            .is_some()
-        {
+        if map.insert(id.clone(), OneshotSender { sender }).is_some() {
             error!("Pending response registration clobbered existing entry for id {id}");
         }
     });
@@ -288,7 +285,6 @@ pub fn deliver_pending_oneshot_response(id: &str, payload: Vec<u8>) -> bool {
         .map(|pending| pending.sender.send(payload).is_ok())
         .unwrap_or(false)
 }
-
 
 #[derive(Debug, Error)]
 pub enum OneshotResponseError {
