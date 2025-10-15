@@ -1080,6 +1080,13 @@ impl HttpServer {
 
 /// Send an HTTP response to an incoming HTTP request ([`HttpServerRequest::Http`]).
 pub fn send_response(status: StatusCode, headers: Option<HashMap<String, String>>, body: Vec<u8>) {
+    // Check if there's a manual body override in the HTTP context
+    let final_body = crate::hyperapp::APP_HELPERS.with(|helpers| {
+        helpers.borrow().current_http_context.as_ref()
+            .and_then(|ctx| ctx.response_body.clone())
+            .unwrap_or(body)  // Use override if present, otherwise use the parameter
+    });
+
     KiResponse::new()
         .body(
             serde_json::to_vec(&HttpResponse {
@@ -1088,7 +1095,7 @@ pub fn send_response(status: StatusCode, headers: Option<HashMap<String, String>
             })
             .unwrap(),
         )
-        .blob_bytes(body)
+        .blob_bytes(final_body)
         .send()
         .unwrap()
 }

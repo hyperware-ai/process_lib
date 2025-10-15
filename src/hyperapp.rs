@@ -38,6 +38,7 @@ pub struct HttpRequestContext {
     pub request: IncomingHttpRequest,
     pub response_headers: HashMap<String, String>,
     pub response_status: http::StatusCode,
+    pub response_body: Option<Vec<u8>>,
 }
 
 pub struct AppContext {
@@ -101,6 +102,15 @@ pub fn set_response_status(status: http::StatusCode) {
     APP_HELPERS.with(|helpers| {
         if let Some(ctx) = &mut helpers.borrow_mut().current_http_context {
             ctx.response_status = status;
+        }
+    })
+}
+
+// Set the HTTP response body directly (bypasses Result serialization)
+pub fn set_response_body(body: Vec<u8>) {
+    APP_HELPERS.with(|helpers| {
+        if let Some(ctx) = &mut helpers.borrow_mut().current_http_context {
+            ctx.response_body = Some(body);
         }
     })
 }
