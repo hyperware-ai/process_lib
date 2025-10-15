@@ -1082,9 +1082,12 @@ impl HttpServer {
 pub fn send_response(status: StatusCode, headers: Option<HashMap<String, String>>, body: Vec<u8>) {
     // Check if there's a manual body override in the HTTP context
     let final_body = crate::hyperapp::APP_HELPERS.with(|helpers| {
-        helpers.borrow().current_http_context.as_ref()
+        helpers
+            .borrow()
+            .current_http_context
+            .as_ref()
             .and_then(|ctx| ctx.response_body.clone())
-            .unwrap_or(body)  // Use override if present, otherwise use the parameter
+            .unwrap_or(body) // Use override if present, otherwise use the parameter
     });
 
     KiResponse::new()
