@@ -2,6 +2,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::task::{Context, Poll};
 
 use crate::{
@@ -10,14 +14,14 @@ use crate::{
     logging::{error, info},
     set_state, timer, Address, BuildError, LazyLoadBlob, Message, Request, SendError,
 };
-use futures_util::task::noop_waker_ref;
+use futures_util::task::{waker_ref, ArcWake};
+use futures_channel::{mpsc, oneshot};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
 thread_local! {
     static SPAWN_QUEUE: RefCell<Vec<Pin<Box<dyn Future<Output = ()>>>>> = RefCell::new(Vec::new());
-
 
     pub static APP_CONTEXT: RefCell<AppContext> = RefCell::new(AppContext {
         hidden_state: None,
@@ -146,10 +150,53 @@ pub struct Executor {
     tasks: Vec<Pin<Box<dyn Future<Output = ()>>>>,
 }
 
-pub fn spawn(fut: impl Future<Output = ()> + 'static) {
+struct ExecutorWakeFlag {
+    triggered: AtomicBool,
+}
+
+impl ExecutorWakeFlag {
+    fn new() -> Self {
+        Self {
+            triggered: AtomicBool::new(false),
+        }
+    }
+
+    fn take(&self) -> bool {
+        self.triggered.swap(false, Ordering::SeqCst)
+    }
+}
+
+impl ArcWake for ExecutorWakeFlag {
+    fn wake_by_ref(arc_self: &Arc<Self>) {
+        arc_self.triggered.store(true, Ordering::SeqCst);
+    }
+}
+
+pub struct JoinHandle<T> {
+    receiver: oneshot::Receiver<T>,
+}
+
+impl<T> Future for JoinHandle<T> {
+    type Output = Result<T, oneshot::Canceled>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let receiver = &mut self.get_mut().receiver;
+        Pin::new(receiver).poll(cx)
+    }
+}
+
+pub fn spawn<T>(fut: impl Future<Output = T> + 'static) -> JoinHandle<T>
+where
+    T: 'static,
+{
+    let (sender, receiver) = oneshot::channel();
     SPAWN_QUEUE.with(|queue| {
-        queue.borrow_mut().push(Box::pin(fut));
-    })
+        queue.borrow_mut().push(Box::pin(async move {
+            let result = fut.await;
+            let _ = sender.send(result);
+        }));
+    });
+    JoinHandle { receiver }
 }
 
 impl Executor {
@@ -158,19 +205,24 @@ impl Executor {
     }
 
     pub fn poll_all_tasks(&mut self) {
+        let wake_flag = Arc::new(ExecutorWakeFlag::new());
         loop {
             // Drain any newly spawned tasks into our task list
             SPAWN_QUEUE.with(|queue| {
                 self.tasks.append(&mut queue.borrow_mut());
             });
 
-            // Poll all tasks, collecting completed ones
+            // Poll all tasks, collecting completed ones.
+            // Put waker into context so tasks can wake the executor if needed.
             let mut completed = Vec::new();
-            let mut ctx = Context::from_waker(noop_waker_ref());
+            {
+                let waker = waker_ref(&wake_flag);
+                let mut ctx = Context::from_waker(&waker);
 
-            for i in 0..self.tasks.len() {
-                if let Poll::Ready(()) = self.tasks[i].as_mut().poll(&mut ctx) {
-                    completed.push(i);
+                for i in 0..self.tasks.len() {
+                    if let Poll::Ready(()) = self.tasks[i].as_mut().poll(&mut ctx) {
+                        completed.push(i);
+                    }
                 }
             }
 
@@ -181,9 +233,10 @@ impl Executor {
 
             // Check if there are new tasks spawned during polling
             let has_new_tasks = SPAWN_QUEUE.with(|queue| !queue.borrow().is_empty());
+            // Check if any task woke the executor that needs to be re-polled
+            let was_woken = wake_flag.take();
 
-            // Continue if new tasks were spawned, otherwise we're done
-            if !has_new_tasks {
+            if !has_new_tasks && !was_woken {
                 break;
             }
         }
