@@ -14,8 +14,8 @@ use crate::{
     logging::{error, info},
     set_state, timer, Address, BuildError, LazyLoadBlob, Message, Request, SendError,
 };
-use futures_util::task::{waker_ref, ArcWake};
 use futures_channel::{mpsc, oneshot};
+use futures_util::task::{waker_ref, ArcWake};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
