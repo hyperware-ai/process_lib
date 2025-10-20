@@ -79,6 +79,35 @@ pub fn get_http_method() -> Option<String> {
     })
 }
 
+// Get a specific header from the current HTTP request
+// Returns None if not in HTTP context or header doesn't exist
+pub fn get_request_header(name: &str) -> Option<String> {
+    APP_HELPERS.with(|helpers| {
+        helpers
+            .borrow()
+            .current_http_context
+            .as_ref()
+            .and_then(|ctx| {
+                ctx.request.headers().get(name)
+                    .and_then(|value| value.to_str().ok())
+                    .map(|s| s.to_string())
+            })
+    })
+}
+
+// Get the full URL of the current HTTP request
+// Returns None if not in an HTTP context
+pub fn get_request_url() -> Option<String> {
+    APP_HELPERS.with(|helpers| {
+        helpers
+            .borrow()
+            .current_http_context
+            .as_ref()
+            .and_then(|ctx| ctx.request.url().ok())
+            .map(|url| url.to_string())
+    })
+}
+
 // Set response headers that will be included in the HTTP response
 pub fn set_response_headers(headers: HashMap<String, String>) {
     APP_HELPERS.with(|helpers| {
