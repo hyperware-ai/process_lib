@@ -88,7 +88,9 @@ pub fn get_request_header(name: &str) -> Option<String> {
             .current_http_context
             .as_ref()
             .and_then(|ctx| {
-                ctx.request.headers().get(name)
+                ctx.request
+                    .headers()
+                    .get(name)
                     .and_then(|value| value.to_str().ok())
                     .map(|s| s.to_string())
             })
