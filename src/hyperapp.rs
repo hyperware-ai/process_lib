@@ -82,13 +82,17 @@ pub fn get_http_method() -> Option<String> {
 // Get a specific header from the current HTTP request
 // Returns None if not in HTTP context or header doesn't exist
 pub fn get_request_header(name: &str) -> Option<String> {
+    use http::header::HeaderName;
+
     APP_HELPERS.with(|helpers| {
         helpers
             .borrow()
             .current_http_context
             .as_ref()
             .and_then(|ctx| {
-                ctx.request.headers().get(name)
+                // Convert string to HeaderName
+                let header_name = HeaderName::from_bytes(name.as_bytes()).ok()?;
+                ctx.request.headers().get(&header_name)
                     .and_then(|value| value.to_str().ok())
                     .map(|s| s.to_string())
             })
