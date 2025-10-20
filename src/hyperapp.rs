@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{
@@ -14,8 +14,8 @@ use crate::{
     logging::{error, info},
     set_state, timer, Address, BuildError, LazyLoadBlob, Message, Request, SendError,
 };
-use futures_util::task::{waker_ref, ArcWake};
 use futures_channel::{mpsc, oneshot};
+use futures_util::task::{waker_ref, ArcWake};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
@@ -29,6 +29,7 @@ thread_local! {
     });
 
     pub static RESPONSE_REGISTRY: RefCell<HashMap<String, Vec<u8>>> = RefCell::new(HashMap::new());
+    pub static CANCELLED_RESPONSES: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 
     pub static APP_HELPERS: RefCell<AppHelpers> = RefCell::new(AppHelpers {
         current_server: None,
@@ -246,6 +247,7 @@ struct ResponseFuture {
     correlation_id: String,
     // Capture HTTP context at creation time
     http_context: Option<HttpRequestContext>,
+    resolved: bool,
 }
 
 impl ResponseFuture {
@@ -257,6 +259,7 @@ impl ResponseFuture {
         Self {
             correlation_id,
             http_context,
+            resolved: false,
         }
     }
 }
@@ -265,16 +268,18 @@ impl Future for ResponseFuture {
     type Output = Vec<u8>;
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let correlation_id = &self.correlation_id;
+        let this = self.get_mut();
 
         let maybe_bytes = RESPONSE_REGISTRY.with(|registry| {
             let mut registry_mut = registry.borrow_mut();
-            registry_mut.remove(correlation_id)
+            registry_mut.remove(&this.correlation_id)
         });
 
         if let Some(bytes) = maybe_bytes {
+            this.resolved = true;
+
             // Restore this future's captured context
-            if let Some(ref context) = self.http_context {
+            if let Some(ref context) = this.http_context {
                 APP_HELPERS.with(|helpers| {
                     helpers.borrow_mut().current_http_context = Some(context.clone());
                 });
@@ -284,6 +289,23 @@ impl Future for ResponseFuture {
         } else {
             Poll::Pending
         }
+    }
+}
+
+impl Drop for ResponseFuture {
+    fn drop(&mut self) {
+        // We want to avoid cleaning up after successful responses
+        if self.resolved {
+            return;
+        }
+
+        RESPONSE_REGISTRY.with(|registry| {
+            registry.borrow_mut().remove(&self.correlation_id);
+        });
+
+        CANCELLED_RESPONSES.with(|set| {
+            set.borrow_mut().insert(self.correlation_id.clone());
+        });
     }
 }
 
