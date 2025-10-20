@@ -92,7 +92,9 @@ pub fn get_request_header(name: &str) -> Option<String> {
             .and_then(|ctx| {
                 // Convert string to HeaderName
                 let header_name = HeaderName::from_bytes(name.as_bytes()).ok()?;
-                ctx.request.headers().get(&header_name)
+                ctx.request
+                    .headers()
+                    .get(&header_name)
                     .and_then(|value| value.to_str().ok())
                     .map(|s| s.to_string())
             })
