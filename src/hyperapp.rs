@@ -164,8 +164,9 @@ pub fn source() -> Address {
     })
 }
 
-/// Get query parameters from the current HTTP request path
+/// Get query parameters from the current HTTP request path (manually parsed)
 /// Returns None if not in an HTTP context or no query parameters present
+/// NOTE: This manually parses the path string. For pre-parsed params, use get_parsed_query_params()
 pub fn get_query_params() -> Option<HashMap<String, String>> {
     get_path().map(|path| {
         let mut params = HashMap::new();
@@ -180,6 +181,19 @@ pub fn get_query_params() -> Option<HashMap<String, String>> {
             }
         }
         params
+    })
+}
+
+/// Get the pre-parsed query parameters from the current HTTP request
+/// Returns None if not in an HTTP context
+/// This accesses the query_params field that Hyperware already parsed (includes URL decoding)
+pub fn get_parsed_query_params() -> Option<HashMap<String, String>> {
+    APP_HELPERS.with(|helpers| {
+        helpers
+            .borrow()
+            .current_http_context
+            .as_ref()
+            .map(|ctx| ctx.request.query_params().clone())
     })
 }
 
