@@ -1,5 +1,5 @@
 use crate::eth::{
-    BlockNumberOrTag, Filter as EthFilter, FilterBlockOption, Log as EthLog, Provider,
+    BlockNumberOrTag, EthError, Filter as EthFilter, FilterBlockOption, Log as EthLog, Provider,
 };
 use crate::hyperware::process::binding_cacher::{
     BindingCacherRequest as CacherRequest, BindingCacherResponse as CacherResponse,
@@ -10,7 +10,9 @@ use crate::hyperware::process::binding_cacher::{
 };
 use crate::{print_to_terminal, Address as BindingAddress, Request};
 use alloy::hex;
-use alloy_primitives::{keccak256, Address};
+use alloy::rpc::types::request::{TransactionInput, TransactionRequest};
+use alloy_primitives::{keccak256, Address, B256, Bytes, FixedBytes, U256};
+use alloy_sol_types::{SolCall, SolEvent, SolValue};
 use serde::{
     self,
     de::{self, MapAccess, Visitor},
@@ -46,7 +48,188 @@ pub struct LogCache {
 
 const CACHER_REQUEST_TIMEOUT_S: u64 = 15;
 
-// ... existing code ...
+/// Sol structures for TokenRegistry requests/events.
+pub mod contract {
+    use alloy_sol_macro::sol;
+
+    sol! {
+        struct Bind {
+            uint256 amount;
+            uint256 endTime;
+        }
+
+        error InvalidAdmin();
+        error InvalidAmount(uint256 amount, uint256 minRequiredAmount, uint256 maxAmount);
+        error InvalidDuration(uint256 duration, uint256 minDuration, uint256 maxDuration);
+        error NoLockExists();
+        error LockExpired(uint256 endTime);
+        error LockNotExpired(uint256 endTime);
+        error InvalidParam(uint256 param);
+        error UnsupportedToken(address token);
+        error ZeroAmount();
+        error SourceNotExpired(bytes32 namehash, uint256 endTime);
+        error ZeroDurationForNewBind();
+        error ZeroAmountForNewBind();
+        error DefaultDestinationInvalidParams(uint256 amount, uint256 duration);
+        error InsufficientLockAmount(uint256 currentlyLocked, uint256 requested);
+        error OnlyGovernanceTokenCanCall();
+        error GHyprAlreadySet();
+
+        event TokensLocked(
+            address indexed account,
+            uint256 amount,
+            uint256 duration,
+            uint256 balance,
+            uint256 endTime
+        );
+
+        event LockExtended(
+            address indexed account,
+            uint256 duration,
+            uint256 balance,
+            uint256 endTime
+        );
+
+        event TokensWithdrawn(
+            address indexed user,
+            uint256 amountWithdrawn,
+            uint256 remainingAmount,
+            uint256 endTime
+        );
+
+        event BindCreated(
+            address indexed user,
+            bytes32 indexed namehash,
+            uint256 amount,
+            uint256 endTime
+        );
+
+        event BindAmountIncreased(
+            address indexed user,
+            bytes32 indexed namehash,
+            uint256 amount,
+            uint256 endTime
+        );
+
+        event BindDurationExtended(
+            address indexed user,
+            bytes32 indexed namehash,
+            uint256 amount,
+            uint256 endTime
+        );
+
+        event TokensBound(
+            address indexed user,
+            bytes32 srcNamehash,
+            bytes32 dstNamehash,
+            uint256 amount
+        );
+
+        event ExpiredBindReclaimed(
+            address indexed user,
+            bytes32 indexed namehash,
+            uint256 amount
+        );
+
+        event Initialized(address indexed hypr, address indexed admin);
+
+        event GHyprSet(address indexed gHypr);
+
+        function initialize(address _hypr, address _admin) external;
+
+        function manageLock(uint256 _amount, uint256 _duration) external;
+
+        function isLockExpired(address _account) external view returns (bool);
+
+        function withdraw() external returns (bool);
+
+        function getLockDetails(address _user)
+            external
+            view
+            returns (uint256 amount, uint256 endTime, uint256 remainingTime);
+
+        function getRegistrationDetails(bytes32 _namehash, address _user)
+            external
+            view
+            returns (uint256 amount, uint256 endTime, uint256 remainingTime);
+
+        function transferRegistration(
+            bytes32 _srcNamehash,
+            bytes32 _dstNamehash,
+            uint256 _maxAmount,
+            uint256 _duration
+        ) external;
+
+        function getUserBinds(address _user) external view returns (bytes32[] memory);
+
+        function calculateVotingPower(uint256 _value, uint256 _lockDuration)
+            external
+            view
+            returns (uint256);
+
+        function getMultiplier(address _account, uint256 _timepoint)
+            external
+            view
+            returns (uint256);
+
+        function getUserUnlockStamp(address _account) external view returns (uint256);
+
+        function getUserOrDelegatedUnlockStamp(address _account) external view returns (uint256);
+
+        function updateDelegationMultipliers(
+            uint256 _unlockTime,
+            uint256 _movedVotes,
+            address _sender,
+            uint256 _senderVotesBefore,
+            address _dst,
+            uint256 _dstVotesBefore
+        ) external;
+
+        function calculateWeightedUnlockStamp(
+            uint256 _remainingDuration,
+            uint256 _currentBalance,
+            uint256 _newLockDuration,
+            uint256 _newLockAmount
+        ) external view returns (uint256);
+
+        function calculateNewLockDuration(
+            uint256 _unlockStamp,
+            uint256 _remainingDuration,
+            uint256 _currentBalance,
+            uint256 _newLockAmount
+        ) external view returns (uint256);
+    }
+}
+
+/// Canonical helper used throughout to hash dotted Hypermap-name paths into bytes32.
+pub fn namehash(name: &str) -> FixedBytes<32> {
+    let mut node = B256::ZERO;
+    let mut labels: Vec<&str> = name.split('.').collect();
+    labels.reverse();
+
+    for label in labels.iter() {
+        let l = keccak256(label.as_bytes());
+        node = keccak256((node, l).abi_encode_packed());
+    }
+
+    FixedBytes::from(node)
+}
+
+/// Details returned from `getLockDetails`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LockDetails {
+    pub amount: U256,
+    pub end_time: U256,
+    pub remaining_time: U256,
+}
+
+/// Details returned from `getRegistrationDetails`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RegistrationDetails {
+    pub amount: U256,
+    pub end_time: U256,
+    pub remaining_time: U256,
+}
 
 /// Apply an ETH log filter to a set of logs (topic/address/block-range only).
 pub fn eth_apply_filter(logs: &[EthLog], filter: &EthFilter) -> Vec<EthLog> {
@@ -133,6 +316,203 @@ impl Bindings {
     /// Returns the in-use Bindings contract address.
     pub fn address(&self) -> &Address {
         &self.address
+    }
+
+    fn call_view<Call>(&self, call: Call) -> Result<Call::Return, EthError>
+    where
+        Call: SolCall,
+    {
+        let tx_req = TransactionRequest::default()
+            .to(self.address)
+            .input(TransactionInput::new(Bytes::from(call.abi_encode())));
+        let res_bytes = self.provider.call(tx_req, None)?;
+        Call::abi_decode_returns(&res_bytes, false).map_err(|_| EthError::RpcMalformedResponse)
+    }
+
+    /// Whether a user's lock is expired.
+    pub fn is_lock_expired(&self, account: Address) -> Result<bool, EthError> {
+        self.call_view(contract::isLockExpiredCall {
+            _account: account,
+        })
+    }
+
+    /// Get the lock details for a user.
+    pub fn get_lock_details(&self, user: Address) -> Result<LockDetails, EthError> {
+        let res = self.call_view(contract::getLockDetailsCall { _user: user })?;
+        Ok(LockDetails {
+            amount: res.amount,
+            end_time: res.endTime,
+            remaining_time: res.remainingTime,
+        })
+    }
+
+    /// Get registration details by an already hashed name.
+    pub fn get_registration_details_by_hash(
+        &self,
+        namehash: FixedBytes<32>,
+        user: Address,
+    ) -> Result<RegistrationDetails, EthError> {
+        let res = self.call_view(contract::getRegistrationDetailsCall {
+            _namehash: namehash,
+            _user: user,
+        })?;
+        Ok(RegistrationDetails {
+            amount: res.amount,
+            end_time: res.endTime,
+            remaining_time: res.remainingTime,
+        })
+    }
+
+    /// Get registration details using a dotted Hypermap label.
+    pub fn get_registration_details(
+        &self,
+        name: &str,
+        user: Address,
+    ) -> Result<RegistrationDetails, EthError> {
+        self.get_registration_details_by_hash(namehash(name), user)
+    }
+
+    /// Return all bind namehashes owned by a user.
+    pub fn get_user_binds(&self, user: Address) -> Result<Vec<FixedBytes<32>>, EthError> {
+        self.call_view(contract::getUserBindsCall { _user: user })
+    }
+
+    /// Calculate voting power for a balance/duration.
+    pub fn calculate_voting_power(&self, value: U256, lock_duration: U256) -> Result<U256, EthError> {
+        self.call_view(contract::calculateVotingPowerCall {
+            _value: value,
+            _lockDuration: lock_duration,
+        })
+    }
+
+    /// Retrieve the multiplier for an account (or supply if account == zero) at a timepoint.
+    pub fn get_multiplier(&self, account: Address, timepoint: U256) -> Result<U256, EthError> {
+        self.call_view(contract::getMultiplierCall {
+            _account: account,
+            _timepoint: timepoint,
+        })
+    }
+
+    pub fn get_user_unlock_stamp(&self, account: Address) -> Result<U256, EthError> {
+        self.call_view(contract::getUserUnlockStampCall {
+            _account: account,
+        })
+    }
+
+    pub fn get_user_or_delegated_unlock_stamp(&self, account: Address) -> Result<U256, EthError> {
+        self.call_view(contract::getUserOrDelegatedUnlockStampCall {
+            _account: account,
+        })
+    }
+
+    pub fn calculate_weighted_unlock_stamp(
+        &self,
+        remaining_duration: U256,
+        current_balance: U256,
+        new_lock_duration: U256,
+        new_lock_amount: U256,
+    ) -> Result<U256, EthError> {
+        self.call_view(contract::calculateWeightedUnlockStampCall {
+            _remainingDuration: remaining_duration,
+            _currentBalance: current_balance,
+            _newLockDuration: new_lock_duration,
+            _newLockAmount: new_lock_amount,
+        })
+    }
+
+    pub fn calculate_new_lock_duration(
+        &self,
+        unlock_stamp: U256,
+        remaining_duration: U256,
+        current_balance: U256,
+        new_lock_amount: U256,
+    ) -> Result<U256, EthError> {
+        self.call_view(contract::calculateNewLockDurationCall {
+            _unlockStamp: unlock_stamp,
+            _remainingDuration: remaining_duration,
+            _currentBalance: current_balance,
+            _newLockAmount: new_lock_amount,
+        })
+    }
+
+    /// Filter for `TokensLocked` events.
+    pub fn tokens_locked_filter(&self) -> EthFilter {
+        EthFilter::new()
+            .address(self.address)
+            .event(contract::TokensLocked::SIGNATURE)
+    }
+
+    /// Filter for `LockExtended` events.
+    pub fn lock_extended_filter(&self) -> EthFilter {
+        EthFilter::new()
+            .address(self.address)
+            .event(contract::LockExtended::SIGNATURE)
+    }
+
+    /// Filter for `TokensWithdrawn` events.
+    pub fn tokens_withdrawn_filter(&self) -> EthFilter {
+        EthFilter::new()
+            .address(self.address)
+            .event(contract::TokensWithdrawn::SIGNATURE)
+    }
+
+    /// Filter for `BindCreated` events.
+    pub fn bind_created_filter(&self) -> EthFilter {
+        EthFilter::new()
+            .address(self.address)
+            .event(contract::BindCreated::SIGNATURE)
+    }
+
+    /// Filter for `BindAmountIncreased` events.
+    pub fn bind_amount_increased_filter(&self) -> EthFilter {
+        EthFilter::new()
+            .address(self.address)
+            .event(contract::BindAmountIncreased::SIGNATURE)
+    }
+
+    /// Filter for `BindDurationExtended` events.
+    pub fn bind_duration_extended_filter(&self) -> EthFilter {
+        EthFilter::new()
+            .address(self.address)
+            .event(contract::BindDurationExtended::SIGNATURE)
+    }
+
+    /// Filter for `TokensBound` events.
+    pub fn tokens_bound_filter(&self) -> EthFilter {
+        EthFilter::new()
+            .address(self.address)
+            .event(contract::TokensBound::SIGNATURE)
+    }
+
+    /// Filter for `ExpiredBindReclaimed` events.
+    pub fn expired_bind_reclaimed_filter(&self) -> EthFilter {
+        EthFilter::new()
+            .address(self.address)
+            .event(contract::ExpiredBindReclaimed::SIGNATURE)
+    }
+
+    /// Filter for `GHyprSet` events.
+    pub fn ghypr_set_filter(&self) -> EthFilter {
+        EthFilter::new()
+            .address(self.address)
+            .event(contract::GHyprSet::SIGNATURE)
+    }
+
+    /// Filter for `Initialized` events.
+    pub fn initialized_filter(&self) -> EthFilter {
+        EthFilter::new()
+            .address(self.address)
+            .event(contract::Initialized::SIGNATURE)
+    }
+
+    /// Create a `BindCreated` filter scoped to specific namehashes.
+    pub fn named_bind_filter(&self, namehashes: &[FixedBytes<32>]) -> EthFilter {
+        self.bind_created_filter().topic2(
+            namehashes
+                .iter()
+                .map(|h| B256::from(*h))
+                .collect::<Vec<_>>(),
+        )
     }
 
     fn get_bootstrap_log_cache_inner(
