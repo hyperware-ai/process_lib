@@ -281,9 +281,9 @@ impl Bindings {
                     ))
                 }
             }
-            CacherResponse::Rejected => Err(anyhow::anyhow!(
-                "Local binding-cacher rejected our request"
-            )),
+            CacherResponse::Rejected => {
+                Err(anyhow::anyhow!("Local binding-cacher rejected our request"))
+            }
             _ => Err(anyhow::anyhow!(
                 "Unexpected response type from local binding-cacher"
             )),
@@ -390,10 +390,7 @@ impl Bindings {
 
         Ok(crate::sign::net_key_verify(
             hashed_data.to_vec(),
-            &log_cache
-                .metadata
-                .created_by
-                .parse::<BindingAddress>()?,
+            &log_cache.metadata.created_by.parse::<BindingAddress>()?,
             signature_bytes,
         )?)
     }
