@@ -201,7 +201,7 @@ pub mod contract {
     }
 }
 
-/// Canonical helper used throughout to hash dotted Hypermap-name paths into bytes32.
+/// Canonical helper used throughout to hash dotted Hypermap paths into bytes32.
 pub fn namehash(name: &str) -> FixedBytes<32> {
     let mut node = B256::ZERO;
     let mut labels: Vec<&str> = name.split('.').collect();
