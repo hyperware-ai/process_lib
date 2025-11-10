@@ -231,6 +231,223 @@ pub struct RegistrationDetails {
     pub remaining_time: U256,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum DecodeBindingLogError {
+    UnexpectedTopic(B256),
+    MissingTopic(usize),
+    DecodeError(String),
+}
+
+fn topic_as_address(topic: &B256) -> Address {
+    let bytes = topic.as_slice();
+    Address::from_slice(&bytes[12..32])
+}
+
+fn expect_topic(log: &EthLog, expected: B256) -> Result<(), DecodeBindingLogError> {
+    match log.topics().first().copied() {
+        Some(topic) if topic == expected => Ok(()),
+        other => Err(DecodeBindingLogError::UnexpectedTopic(
+            other.unwrap_or_default(),
+        )),
+    }
+}
+
+fn topic_at(log: &EthLog, idx: usize) -> Result<B256, DecodeBindingLogError> {
+    log.topics()
+        .get(idx)
+        .copied()
+        .ok_or(DecodeBindingLogError::MissingTopic(idx))
+}
+
+fn decode_data<T>(result: Result<T, alloy_sol_types::Error>) -> Result<T, DecodeBindingLogError> {
+    result.map_err(|e| DecodeBindingLogError::DecodeError(e.to_string()))
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TokensLockedLog {
+    pub account: Address,
+    pub amount: U256,
+    pub duration: U256,
+    pub balance: U256,
+    pub end_time: U256,
+}
+
+pub fn decode_tokens_locked_log(log: &EthLog) -> Result<TokensLockedLog, DecodeBindingLogError> {
+    expect_topic(log, contract::TokensLocked::SIGNATURE_HASH)?;
+    let account = topic_as_address(&topic_at(log, 1)?);
+    let decoded = decode_data(contract::TokensLocked::decode_log_data(log.data(), true))?;
+    Ok(TokensLockedLog {
+        account,
+        amount: decoded.amount,
+        duration: decoded.duration,
+        balance: decoded.balance,
+        end_time: decoded.endTime,
+    })
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LockExtendedLog {
+    pub account: Address,
+    pub duration: U256,
+    pub balance: U256,
+    pub end_time: U256,
+}
+
+pub fn decode_lock_extended_log(log: &EthLog) -> Result<LockExtendedLog, DecodeBindingLogError> {
+    expect_topic(log, contract::LockExtended::SIGNATURE_HASH)?;
+    let account = topic_as_address(&topic_at(log, 1)?);
+    let decoded = decode_data(contract::LockExtended::decode_log_data(log.data(), true))?;
+    Ok(LockExtendedLog {
+        account,
+        duration: decoded.duration,
+        balance: decoded.balance,
+        end_time: decoded.endTime,
+    })
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TokensWithdrawnLog {
+    pub user: Address,
+    pub amount_withdrawn: U256,
+    pub remaining_amount: U256,
+    pub end_time: U256,
+}
+
+pub fn decode_tokens_withdrawn_log(
+    log: &EthLog,
+) -> Result<TokensWithdrawnLog, DecodeBindingLogError> {
+    expect_topic(log, contract::TokensWithdrawn::SIGNATURE_HASH)?;
+    let user = topic_as_address(&topic_at(log, 1)?);
+    let decoded = decode_data(contract::TokensWithdrawn::decode_log_data(log.data(), true))?;
+    Ok(TokensWithdrawnLog {
+        user,
+        amount_withdrawn: decoded.amountWithdrawn,
+        remaining_amount: decoded.remainingAmount,
+        end_time: decoded.endTime,
+    })
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct BindLog {
+    pub user: Address,
+    pub namehash: FixedBytes<32>,
+    pub amount: U256,
+    pub end_time: U256,
+}
+
+pub fn decode_bind_created_log(log: &EthLog) -> Result<BindLog, DecodeBindingLogError> {
+    expect_topic(log, contract::BindCreated::SIGNATURE_HASH)?;
+    let user = topic_as_address(&topic_at(log, 1)?);
+    let namehash = topic_at(log, 2)?;
+    let decoded = decode_data(contract::BindCreated::decode_log_data(log.data(), true))?;
+    Ok(BindLog {
+        user,
+        namehash,
+        amount: decoded.amount,
+        end_time: decoded.endTime,
+    })
+}
+
+pub fn decode_bind_amount_increased_log(log: &EthLog) -> Result<BindLog, DecodeBindingLogError> {
+    expect_topic(log, contract::BindAmountIncreased::SIGNATURE_HASH)?;
+    let user = topic_as_address(&topic_at(log, 1)?);
+    let namehash = topic_at(log, 2)?;
+    let decoded = decode_data(contract::BindAmountIncreased::decode_log_data(
+        log.data(),
+        true,
+    ))?;
+    Ok(BindLog {
+        user,
+        namehash,
+        amount: decoded.amount,
+        end_time: decoded.endTime,
+    })
+}
+
+pub fn decode_bind_duration_extended_log(log: &EthLog) -> Result<BindLog, DecodeBindingLogError> {
+    expect_topic(log, contract::BindDurationExtended::SIGNATURE_HASH)?;
+    let user = topic_as_address(&topic_at(log, 1)?);
+    let namehash = topic_at(log, 2)?;
+    let decoded = decode_data(contract::BindDurationExtended::decode_log_data(
+        log.data(),
+        true,
+    ))?;
+    Ok(BindLog {
+        user,
+        namehash,
+        amount: decoded.amount,
+        end_time: decoded.endTime,
+    })
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TokensBoundLog {
+    pub user: Address,
+    pub src_namehash: FixedBytes<32>,
+    pub dst_namehash: FixedBytes<32>,
+    pub amount: U256,
+}
+
+pub fn decode_tokens_bound_log(log: &EthLog) -> Result<TokensBoundLog, DecodeBindingLogError> {
+    expect_topic(log, contract::TokensBound::SIGNATURE_HASH)?;
+    let user = topic_as_address(&topic_at(log, 1)?);
+    let decoded = decode_data(contract::TokensBound::decode_log_data(log.data(), true))?;
+    Ok(TokensBoundLog {
+        user,
+        src_namehash: decoded.srcNamehash,
+        dst_namehash: decoded.dstNamehash,
+        amount: decoded.amount,
+    })
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ExpiredBindReclaimedLog {
+    pub user: Address,
+    pub namehash: FixedBytes<32>,
+    pub amount: U256,
+}
+
+pub fn decode_expired_bind_reclaimed_log(
+    log: &EthLog,
+) -> Result<ExpiredBindReclaimedLog, DecodeBindingLogError> {
+    expect_topic(log, contract::ExpiredBindReclaimed::SIGNATURE_HASH)?;
+    let user = topic_as_address(&topic_at(log, 1)?);
+    let namehash = topic_at(log, 2)?;
+    let decoded = decode_data(contract::ExpiredBindReclaimed::decode_log_data(
+        log.data(),
+        true,
+    ))?;
+    Ok(ExpiredBindReclaimedLog {
+        user,
+        namehash,
+        amount: decoded.amount,
+    })
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct InitializedLog {
+    pub hypr: Address,
+    pub admin: Address,
+}
+
+pub fn decode_initialized_log(log: &EthLog) -> Result<InitializedLog, DecodeBindingLogError> {
+    expect_topic(log, contract::Initialized::SIGNATURE_HASH)?;
+    let hypr = topic_as_address(&topic_at(log, 1)?);
+    let admin = topic_as_address(&topic_at(log, 2)?);
+    Ok(InitializedLog { hypr, admin })
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct GHyprSetLog {
+    pub g_hypr: Address,
+}
+
+pub fn decode_ghypr_set_log(log: &EthLog) -> Result<GHyprSetLog, DecodeBindingLogError> {
+    expect_topic(log, contract::GHyprSet::SIGNATURE_HASH)?;
+    let g_hypr = topic_as_address(&topic_at(log, 1)?);
+    Ok(GHyprSetLog { g_hypr })
+}
+
 /// Apply an ETH log filter to a set of logs (topic/address/block-range only).
 pub fn eth_apply_filter(logs: &[EthLog], filter: &EthFilter) -> Vec<EthLog> {
     let mut matched_logs = Vec::new();
