@@ -546,6 +546,15 @@ impl Bindings {
         Call::abi_decode_returns(&res_bytes, false).map_err(|_| EthError::RpcMalformedResponse)
     }
 
+    fn build_tx<Call>(&self, call: Call) -> TransactionRequest
+    where
+        Call: SolCall,
+    {
+        TransactionRequest::default()
+            .to(self.address)
+            .input(TransactionInput::new(Bytes::from(call.abi_encode())))
+    }
+
     /// Whether a user's lock is expired.
     pub fn is_lock_expired(&self, account: Address) -> Result<bool, EthError> {
         self.call_view(contract::isLockExpiredCall {
@@ -649,6 +658,80 @@ impl Bindings {
             _remainingDuration: remaining_duration,
             _currentBalance: current_balance,
             _newLockAmount: new_lock_amount,
+        })
+    }
+
+    /// Build a transaction for `initialize`.
+    pub fn build_initialize_tx(&self, hypr: Address, admin: Address) -> TransactionRequest {
+        self.build_tx(contract::initializeCall {
+            _hypr: hypr,
+            _admin: admin,
+        })
+    }
+
+    /// Build a transaction for `manageLock`.
+    pub fn build_manage_lock_tx(&self, amount: U256, duration: U256) -> TransactionRequest {
+        self.build_tx(contract::manageLockCall {
+            _amount: amount,
+            _duration: duration,
+        })
+    }
+
+    /// Build a transaction for `withdraw`.
+    pub fn build_withdraw_tx(&self) -> TransactionRequest {
+        self.build_tx(contract::withdrawCall {})
+    }
+
+    /// Build a transaction for `transferRegistration` with pre-hashed names.
+    pub fn build_transfer_registration_tx(
+        &self,
+        src_namehash: FixedBytes<32>,
+        dst_namehash: FixedBytes<32>,
+        max_amount: U256,
+        duration: U256,
+    ) -> TransactionRequest {
+        self.build_tx(contract::transferRegistrationCall {
+            _srcNamehash: src_namehash,
+            _dstNamehash: dst_namehash,
+            _maxAmount: max_amount,
+            _duration: duration,
+        })
+    }
+
+    /// Build a transaction for `transferRegistration` using dotted names.
+    pub fn build_transfer_registration_by_name_tx(
+        &self,
+        src_name: &str,
+        dst_name: &str,
+        max_amount: U256,
+        duration: U256,
+    ) -> TransactionRequest {
+        self.build_transfer_registration_tx(
+            namehash(src_name),
+            namehash(dst_name),
+            max_amount,
+            duration,
+        )
+    }
+
+    /// Build a transaction for `updateDelegationMultipliers`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_update_delegation_multipliers_tx(
+        &self,
+        unlock_time: U256,
+        moved_votes: U256,
+        sender: Address,
+        sender_votes_before: U256,
+        dst: Address,
+        dst_votes_before: U256,
+    ) -> TransactionRequest {
+        self.build_tx(contract::updateDelegationMultipliersCall {
+            _unlockTime: unlock_time,
+            _movedVotes: moved_votes,
+            _sender: sender,
+            _senderVotesBefore: sender_votes_before,
+            _dst: dst,
+            _dstVotesBefore: dst_votes_before,
         })
     }
 
