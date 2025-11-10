@@ -735,84 +735,63 @@ impl Bindings {
         })
     }
 
+    fn event_filter(signature: B256, address: Address) -> EthFilter {
+        EthFilter::new().address(address).event(signature)
+    }
+
     /// Filter for `TokensLocked` events.
     pub fn tokens_locked_filter(&self) -> EthFilter {
-        EthFilter::new()
-            .address(self.address)
-            .event(contract::TokensLocked::SIGNATURE)
+        Self::event_filter(contract::TokensLocked::SIGNATURE_HASH, self.address)
     }
 
     /// Filter for `LockExtended` events.
     pub fn lock_extended_filter(&self) -> EthFilter {
-        EthFilter::new()
-            .address(self.address)
-            .event(contract::LockExtended::SIGNATURE)
+        Self::event_filter(contract::LockExtended::SIGNATURE_HASH, self.address)
     }
 
     /// Filter for `TokensWithdrawn` events.
     pub fn tokens_withdrawn_filter(&self) -> EthFilter {
-        EthFilter::new()
-            .address(self.address)
-            .event(contract::TokensWithdrawn::SIGNATURE)
+        Self::event_filter(contract::TokensWithdrawn::SIGNATURE_HASH, self.address)
     }
 
     /// Filter for `BindCreated` events.
     pub fn bind_created_filter(&self) -> EthFilter {
-        EthFilter::new()
-            .address(self.address)
-            .event(contract::BindCreated::SIGNATURE)
+        Self::event_filter(contract::BindCreated::SIGNATURE_HASH, self.address)
     }
 
     /// Filter for `BindAmountIncreased` events.
     pub fn bind_amount_increased_filter(&self) -> EthFilter {
-        EthFilter::new()
-            .address(self.address)
-            .event(contract::BindAmountIncreased::SIGNATURE)
+        Self::event_filter(contract::BindAmountIncreased::SIGNATURE_HASH, self.address)
     }
 
     /// Filter for `BindDurationExtended` events.
     pub fn bind_duration_extended_filter(&self) -> EthFilter {
-        EthFilter::new()
-            .address(self.address)
-            .event(contract::BindDurationExtended::SIGNATURE)
+        Self::event_filter(contract::BindDurationExtended::SIGNATURE_HASH, self.address)
     }
 
     /// Filter for `TokensBound` events.
     pub fn tokens_bound_filter(&self) -> EthFilter {
-        EthFilter::new()
-            .address(self.address)
-            .event(contract::TokensBound::SIGNATURE)
+        Self::event_filter(contract::TokensBound::SIGNATURE_HASH, self.address)
     }
 
     /// Filter for `ExpiredBindReclaimed` events.
     pub fn expired_bind_reclaimed_filter(&self) -> EthFilter {
-        EthFilter::new()
-            .address(self.address)
-            .event(contract::ExpiredBindReclaimed::SIGNATURE)
+        Self::event_filter(contract::ExpiredBindReclaimed::SIGNATURE_HASH, self.address)
     }
 
     /// Filter for `GHyprSet` events.
     pub fn ghypr_set_filter(&self) -> EthFilter {
-        EthFilter::new()
-            .address(self.address)
-            .event(contract::GHyprSet::SIGNATURE)
+        Self::event_filter(contract::GHyprSet::SIGNATURE_HASH, self.address)
     }
 
     /// Filter for `Initialized` events.
     pub fn initialized_filter(&self) -> EthFilter {
-        EthFilter::new()
-            .address(self.address)
-            .event(contract::Initialized::SIGNATURE)
+        Self::event_filter(contract::Initialized::SIGNATURE_HASH, self.address)
     }
 
     /// Create a `BindCreated` filter scoped to specific namehashes.
     pub fn named_bind_filter(&self, namehashes: &[FixedBytes<32>]) -> EthFilter {
-        self.bind_created_filter().topic2(
-            namehashes
-                .iter()
-                .map(|h| B256::from(*h))
-                .collect::<Vec<_>>(),
-        )
+        self.bind_created_filter().topic2(namehashes.iter().map(B256::from).collect::<Vec<_>>())
     }
 
     fn get_bootstrap_log_cache_inner(
