@@ -9,7 +9,7 @@ repository = "https://github.com/hyperware-ai/process_lib"
 license = "Apache-2.0"
 
 [features]
-hyperapp = ["dep:futures-util", "dep:uuid", "logging"]
+hyperapp = ["dep:futures-util", "dep:futures-channel", "dep:uuid", "logging"]
 logging = ["dep:color-eyre", "dep:tracing", "dep:tracing-error", "dep:tracing-subscriber"]
 hyperwallet = ["dep:hex", "dep:sha3"]
 simulation-mode = []
@@ -42,6 +42,7 @@ url = "2.4.1"
 wit-bindgen = "0.42.1"
 
 futures-util = { version = "0.3", optional = true }
+futures-channel = { version = "0.3", optional = true }
 uuid = { version = "1.0", features = ["v4"], optional = true }
 
 color-eyre = { version = "0.6", features = ["capture-spantrace"], optional = true }
