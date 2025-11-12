@@ -26,7 +26,7 @@ use std::str::FromStr;
 #[cfg(not(feature = "simulation-mode"))]
 pub const BINDINGS_ADDRESS: &'static str = "0x0000000000e8d224B902632757d5dbc51a451456";
 #[cfg(feature = "simulation-mode")]
-pub const BINDINGS_ADDRESS: &'static str = "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318";
+pub const BINDINGS_ADDRESS: &'static str = "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6";
 #[cfg(not(feature = "simulation-mode"))]
 pub const BINDINGS_CHAIN_ID: u64 = 8453; // base
 #[cfg(feature = "simulation-mode")]
@@ -198,6 +198,19 @@ pub mod contract {
             uint256 _currentBalance,
             uint256 _newLockAmount
         ) external view returns (uint256);
+
+        function hypr() external view returns (address);
+    }
+}
+
+mod erc20 {
+    use alloy_sol_macro::sol;
+
+    sol! {
+        interface IERC20 {
+            function balanceOf(address account) external view returns (uint256);
+            function allowance(address owner, address spender) external view returns (uint256);
+        }
     }
 }
 
@@ -539,8 +552,15 @@ impl Bindings {
     where
         Call: SolCall,
     {
+        self.call_view_at(self.address, call)
+    }
+
+    fn call_view_at<Call>(&self, target: Address, call: Call) -> Result<Call::Return, EthError>
+    where
+        Call: SolCall,
+    {
         let tx_req = TransactionRequest::default()
-            .to(self.address)
+            .to(target)
             .input(TransactionInput::new(Bytes::from(call.abi_encode())));
         let res_bytes = self.provider.call(tx_req, None)?;
         Call::abi_decode_returns(&res_bytes, false).map_err(|_| EthError::RpcMalformedResponse)
@@ -557,9 +577,10 @@ impl Bindings {
 
     /// Whether a user's lock is expired.
     pub fn is_lock_expired(&self, account: Address) -> Result<bool, EthError> {
-        self.call_view(contract::isLockExpiredCall {
+        let res = self.call_view(contract::isLockExpiredCall {
             _account: account,
-        })
+        })?;
+        Ok(res._0)
     }
 
     /// Get the lock details for a user.
@@ -600,35 +621,40 @@ impl Bindings {
 
     /// Return all bind namehashes owned by a user.
     pub fn get_user_binds(&self, user: Address) -> Result<Vec<FixedBytes<32>>, EthError> {
-        self.call_view(contract::getUserBindsCall { _user: user })
+        let res = self.call_view(contract::getUserBindsCall { _user: user })?;
+        Ok(res._0)
     }
 
     /// Calculate voting power for a balance/duration.
     pub fn calculate_voting_power(&self, value: U256, lock_duration: U256) -> Result<U256, EthError> {
-        self.call_view(contract::calculateVotingPowerCall {
+        let res = self.call_view(contract::calculateVotingPowerCall {
             _value: value,
             _lockDuration: lock_duration,
-        })
+        })?;
+        Ok(res._0)
     }
 
     /// Retrieve the multiplier for an account (or supply if account == zero) at a timepoint.
     pub fn get_multiplier(&self, account: Address, timepoint: U256) -> Result<U256, EthError> {
-        self.call_view(contract::getMultiplierCall {
+        let res = self.call_view(contract::getMultiplierCall {
             _account: account,
             _timepoint: timepoint,
-        })
+        })?;
+        Ok(res._0)
     }
 
     pub fn get_user_unlock_stamp(&self, account: Address) -> Result<U256, EthError> {
-        self.call_view(contract::getUserUnlockStampCall {
+        let res = self.call_view(contract::getUserUnlockStampCall {
             _account: account,
-        })
+        })?;
+        Ok(res._0)
     }
 
     pub fn get_user_or_delegated_unlock_stamp(&self, account: Address) -> Result<U256, EthError> {
-        self.call_view(contract::getUserOrDelegatedUnlockStampCall {
+        let res = self.call_view(contract::getUserOrDelegatedUnlockStampCall {
             _account: account,
-        })
+        })?;
+        Ok(res._0)
     }
 
     pub fn calculate_weighted_unlock_stamp(
@@ -638,12 +664,13 @@ impl Bindings {
         new_lock_duration: U256,
         new_lock_amount: U256,
     ) -> Result<U256, EthError> {
-        self.call_view(contract::calculateWeightedUnlockStampCall {
+        let res = self.call_view(contract::calculateWeightedUnlockStampCall {
             _remainingDuration: remaining_duration,
             _currentBalance: current_balance,
             _newLockDuration: new_lock_duration,
             _newLockAmount: new_lock_amount,
-        })
+        })?;
+        Ok(res._0)
     }
 
     pub fn calculate_new_lock_duration(
@@ -653,12 +680,39 @@ impl Bindings {
         current_balance: U256,
         new_lock_amount: U256,
     ) -> Result<U256, EthError> {
-        self.call_view(contract::calculateNewLockDurationCall {
+        let res = self.call_view(contract::calculateNewLockDurationCall {
             _unlockStamp: unlock_stamp,
             _remainingDuration: remaining_duration,
             _currentBalance: current_balance,
             _newLockAmount: new_lock_amount,
-        })
+        })?;
+        Ok(res._0)
+    }
+
+    /// Returns the HYPR token address backing the registry.
+    pub fn get_hypr_address(&self) -> Result<Address, EthError> {
+        let res = self.call_view(contract::hyprCall {})?;
+        Ok(res._0)
+    }
+
+    /// Returns the HYPR ERC20 balance for a given account.
+    pub fn get_hypr_balance(&self, account: Address) -> Result<U256, EthError> {
+        let hypr_address = self.get_hypr_address()?;
+        let res = self.call_view_at(hypr_address, erc20::IERC20::balanceOfCall { account })?;
+        Ok(res._0)
+    }
+
+    /// Returns the HYPR ERC20 allowance granted to the TokenRegistry for an account.
+    pub fn get_hypr_allowance(&self, owner: Address) -> Result<U256, EthError> {
+        let hypr_address = self.get_hypr_address()?;
+        let res = self.call_view_at(
+            hypr_address,
+            erc20::IERC20::allowanceCall {
+                owner,
+                spender: self.address,
+            },
+        )?;
+        Ok(res._0)
     }
 
     /// Build a transaction for `initialize`.
@@ -735,63 +789,64 @@ impl Bindings {
         })
     }
 
-    fn event_filter(signature: B256, address: Address) -> EthFilter {
+    fn event_filter(signature: &str, address: Address) -> EthFilter {
         EthFilter::new().address(address).event(signature)
     }
 
     /// Filter for `TokensLocked` events.
     pub fn tokens_locked_filter(&self) -> EthFilter {
-        Self::event_filter(contract::TokensLocked::SIGNATURE_HASH, self.address)
+        Self::event_filter(contract::TokensLocked::SIGNATURE, self.address)
     }
 
     /// Filter for `LockExtended` events.
     pub fn lock_extended_filter(&self) -> EthFilter {
-        Self::event_filter(contract::LockExtended::SIGNATURE_HASH, self.address)
+        Self::event_filter(contract::LockExtended::SIGNATURE, self.address)
     }
 
     /// Filter for `TokensWithdrawn` events.
     pub fn tokens_withdrawn_filter(&self) -> EthFilter {
-        Self::event_filter(contract::TokensWithdrawn::SIGNATURE_HASH, self.address)
+        Self::event_filter(contract::TokensWithdrawn::SIGNATURE, self.address)
     }
 
     /// Filter for `BindCreated` events.
     pub fn bind_created_filter(&self) -> EthFilter {
-        Self::event_filter(contract::BindCreated::SIGNATURE_HASH, self.address)
+        Self::event_filter(contract::BindCreated::SIGNATURE, self.address)
     }
 
     /// Filter for `BindAmountIncreased` events.
     pub fn bind_amount_increased_filter(&self) -> EthFilter {
-        Self::event_filter(contract::BindAmountIncreased::SIGNATURE_HASH, self.address)
+        Self::event_filter(contract::BindAmountIncreased::SIGNATURE, self.address)
     }
 
     /// Filter for `BindDurationExtended` events.
     pub fn bind_duration_extended_filter(&self) -> EthFilter {
-        Self::event_filter(contract::BindDurationExtended::SIGNATURE_HASH, self.address)
+        Self::event_filter(contract::BindDurationExtended::SIGNATURE, self.address)
     }
 
     /// Filter for `TokensBound` events.
     pub fn tokens_bound_filter(&self) -> EthFilter {
-        Self::event_filter(contract::TokensBound::SIGNATURE_HASH, self.address)
+        Self::event_filter(contract::TokensBound::SIGNATURE, self.address)
     }
 
     /// Filter for `ExpiredBindReclaimed` events.
     pub fn expired_bind_reclaimed_filter(&self) -> EthFilter {
-        Self::event_filter(contract::ExpiredBindReclaimed::SIGNATURE_HASH, self.address)
+        Self::event_filter(contract::ExpiredBindReclaimed::SIGNATURE, self.address)
     }
 
     /// Filter for `GHyprSet` events.
     pub fn ghypr_set_filter(&self) -> EthFilter {
-        Self::event_filter(contract::GHyprSet::SIGNATURE_HASH, self.address)
+        Self::event_filter(contract::GHyprSet::SIGNATURE, self.address)
     }
 
     /// Filter for `Initialized` events.
     pub fn initialized_filter(&self) -> EthFilter {
-        Self::event_filter(contract::Initialized::SIGNATURE_HASH, self.address)
+        Self::event_filter(contract::Initialized::SIGNATURE, self.address)
     }
 
     /// Create a `BindCreated` filter scoped to specific namehashes.
     pub fn named_bind_filter(&self, namehashes: &[FixedBytes<32>]) -> EthFilter {
-        self.bind_created_filter().topic2(namehashes.iter().map(B256::from).collect::<Vec<_>>())
+        self.bind_created_filter()
+            .topic2(namehashes.iter().map(|h| B256::from(*h)).collect::<Vec<_>>())
     }
 
     fn get_bootstrap_log_cache_inner(
@@ -1023,6 +1078,7 @@ impl Bindings {
         ))
     }
 
+    #[cfg(not(feature = "hyperapp"))]
     pub fn validate_log_cache(&self, log_cache: &LogCache) -> anyhow::Result<bool> {
         let from_block = log_cache.metadata.from_block.parse::<u64>().map_err(|_| {
             anyhow::anyhow!(
@@ -1052,6 +1108,39 @@ impl Bindings {
             &log_cache.metadata.created_by.parse::<BindingAddress>()?,
             signature_bytes,
         )?)
+    }
+
+    #[cfg(feature = "hyperapp")]
+    pub async fn validate_log_cache(&self, log_cache: &LogCache) -> anyhow::Result<bool> {
+        let from_block = log_cache.metadata.from_block.parse::<u64>().map_err(|_| {
+            anyhow::anyhow!(
+                "Invalid from_block in metadata: {}",
+                log_cache.metadata.from_block
+            )
+        })?;
+        let to_block = log_cache.metadata.to_block.parse::<u64>().map_err(|_| {
+            anyhow::anyhow!(
+                "Invalid to_block in metadata: {}",
+                log_cache.metadata.to_block
+            )
+        })?;
+
+        let mut bytes_to_verify = serde_json::to_vec(&log_cache.logs)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize logs for validation: {:?}", e))?;
+        bytes_to_verify.extend_from_slice(&from_block.to_be_bytes());
+        bytes_to_verify.extend_from_slice(&to_block.to_be_bytes());
+        let hashed_data = keccak256(&bytes_to_verify);
+
+        let signature_hex = log_cache.metadata.signature.trim_start_matches("0x");
+        let signature_bytes = hex::decode(signature_hex)
+            .map_err(|e| anyhow::anyhow!("Failed to decode hex signature: {:?}", e))?;
+
+        Ok(crate::sign::net_key_verify(
+            hashed_data.to_vec(),
+            &log_cache.metadata.created_by.parse::<BindingAddress>()?,
+            signature_bytes,
+        )
+        .await?)
     }
 
     pub fn get_bootstrap(
