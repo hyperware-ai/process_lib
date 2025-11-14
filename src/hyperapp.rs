@@ -500,11 +500,7 @@ pub fn setup_server(
     let mut server = http::server::HttpServer::new(5);
 
     if let Some(ui) = ui_config {
-        if let Err(e) = server.serve_ui(
-            "ui",
-            vec!["/"],
-            ui.clone(),
-        ) {
+        if let Err(e) = server.serve_ui("ui", vec!["/"], ui.clone()) {
             panic!("failed to serve UI: {e}. Make sure that a ui folder is in /pkg");
         }
     }

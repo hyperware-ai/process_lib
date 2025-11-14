@@ -11,7 +11,7 @@ use crate::hyperware::process::binding_cacher::{
 use crate::{print_to_terminal, Address as BindingAddress, Request};
 use alloy::hex;
 use alloy::rpc::types::request::{TransactionInput, TransactionRequest};
-use alloy_primitives::{keccak256, Address, B256, Bytes, FixedBytes, U256};
+use alloy_primitives::{keccak256, Address, Bytes, FixedBytes, B256, U256};
 use alloy_sol_types::{SolCall, SolEvent, SolValue};
 use serde::{
     self,
@@ -577,9 +577,7 @@ impl Bindings {
 
     /// Whether a user's lock is expired.
     pub fn is_lock_expired(&self, account: Address) -> Result<bool, EthError> {
-        let res = self.call_view(contract::isLockExpiredCall {
-            _account: account,
-        })?;
+        let res = self.call_view(contract::isLockExpiredCall { _account: account })?;
         Ok(res._0)
     }
 
@@ -626,7 +624,11 @@ impl Bindings {
     }
 
     /// Calculate voting power for a balance/duration.
-    pub fn calculate_voting_power(&self, value: U256, lock_duration: U256) -> Result<U256, EthError> {
+    pub fn calculate_voting_power(
+        &self,
+        value: U256,
+        lock_duration: U256,
+    ) -> Result<U256, EthError> {
         let res = self.call_view(contract::calculateVotingPowerCall {
             _value: value,
             _lockDuration: lock_duration,
@@ -644,16 +646,13 @@ impl Bindings {
     }
 
     pub fn get_user_unlock_stamp(&self, account: Address) -> Result<U256, EthError> {
-        let res = self.call_view(contract::getUserUnlockStampCall {
-            _account: account,
-        })?;
+        let res = self.call_view(contract::getUserUnlockStampCall { _account: account })?;
         Ok(res._0)
     }
 
     pub fn get_user_or_delegated_unlock_stamp(&self, account: Address) -> Result<U256, EthError> {
-        let res = self.call_view(contract::getUserOrDelegatedUnlockStampCall {
-            _account: account,
-        })?;
+        let res =
+            self.call_view(contract::getUserOrDelegatedUnlockStampCall { _account: account })?;
         Ok(res._0)
     }
 
@@ -845,8 +844,12 @@ impl Bindings {
 
     /// Create a `BindCreated` filter scoped to specific namehashes.
     pub fn named_bind_filter(&self, namehashes: &[FixedBytes<32>]) -> EthFilter {
-        self.bind_created_filter()
-            .topic2(namehashes.iter().map(|h| B256::from(*h)).collect::<Vec<_>>())
+        self.bind_created_filter().topic2(
+            namehashes
+                .iter()
+                .map(|h| B256::from(*h))
+                .collect::<Vec<_>>(),
+        )
     }
 
     fn get_bootstrap_log_cache_inner(
