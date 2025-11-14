@@ -14,7 +14,7 @@ use crate::{
     logging::{error, info},
     set_state, timer, Address, BuildError, LazyLoadBlob, Message, Request, SendError,
 };
-use futures_channel::{mpsc, oneshot};
+use futures_channel::oneshot;
 use futures_util::task::{waker_ref, ArcWake};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -495,14 +495,13 @@ where
 
 pub fn setup_server(
     ui_config: Option<&HttpBindingConfig>,
-    ui_path: Option<String>,
     endpoints: &[Binding],
 ) -> http::server::HttpServer {
     let mut server = http::server::HttpServer::new(5);
 
     if let Some(ui) = ui_config {
         if let Err(e) = server.serve_ui(
-            &ui_path.unwrap_or_else(|| "ui".to_string()),
+            "ui",
             vec!["/"],
             ui.clone(),
         ) {
