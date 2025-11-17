@@ -43,7 +43,6 @@ pub struct HttpRequestContext {
     pub request: IncomingHttpRequest,
     pub response_headers: HashMap<String, String>,
     pub response_status: http::StatusCode,
-    pub response_body: Option<Vec<u8>>,
 }
 
 pub struct AppContext {
@@ -144,15 +143,6 @@ pub fn set_response_status(status: http::StatusCode) {
     })
 }
 
-// Set the HTTP response body directly (bypasses Result serialization)
-pub fn set_response_body(body: Vec<u8>) {
-    APP_HELPERS.with(|helpers| {
-        if let Some(ctx) = &mut helpers.borrow_mut().current_http_context {
-            ctx.response_body = Some(body);
-        }
-    })
-}
-
 pub fn clear_http_request_context() {
     APP_HELPERS.with(|helpers| {
         helpers.borrow_mut().current_http_context = None;
@@ -171,30 +161,10 @@ pub fn source() -> Address {
     })
 }
 
-/// Get query parameters from the current HTTP request path (manually parsed)
-/// Returns None if not in an HTTP context or no query parameters present
-/// NOTE: This manually parses the path string. For pre-parsed params, use get_parsed_query_params()
-pub fn get_query_params() -> Option<HashMap<String, String>> {
-    get_path().map(|path| {
-        let mut params = HashMap::new();
-        if let Some(query_start) = path.find('?') {
-            let query = &path[query_start + 1..];
-            for pair in query.split('&') {
-                if let Some(eq_pos) = pair.find('=') {
-                    let key = pair[..eq_pos].to_string();
-                    let value = pair[eq_pos + 1..].to_string();
-                    params.insert(key, value);
-                }
-            }
-        }
-        params
-    })
-}
-
 /// Get the pre-parsed query parameters from the current HTTP request
 /// Returns None if not in an HTTP context
 /// This accesses the query_params field that Hyperware already parsed (includes URL decoding)
-pub fn get_parsed_query_params() -> Option<HashMap<String, String>> {
+pub fn get_query_params() -> Option<HashMap<String, String>> {
     APP_HELPERS.with(|helpers| {
         helpers
             .borrow()
