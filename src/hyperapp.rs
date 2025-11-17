@@ -83,6 +83,39 @@ pub fn get_http_method() -> Option<String> {
     })
 }
 
+// Get a specific header from the current HTTP request
+// Returns None if not in HTTP context or header doesn't exist
+pub fn get_request_header(name: &str) -> Option<String> {
+    APP_HELPERS.with(|helpers| {
+        helpers
+            .borrow()
+            .current_http_context
+            .as_ref()
+            .and_then(|ctx| {
+                // Convert string to HeaderName using process_lib's re-exported type
+                let header_name = http::HeaderName::from_bytes(name.as_bytes()).ok()?;
+                ctx.request
+                    .headers()
+                    .get(&header_name)
+                    .and_then(|value| value.to_str().ok())
+                    .map(|s| s.to_string())
+            })
+    })
+}
+
+// Get the full URL of the current HTTP request
+// Returns None if not in an HTTP context
+pub fn get_request_url() -> Option<String> {
+    APP_HELPERS.with(|helpers| {
+        helpers
+            .borrow()
+            .current_http_context
+            .as_ref()
+            .and_then(|ctx| ctx.request.url().ok())
+            .map(|url| url.to_string())
+    })
+}
+
 // Set response headers that will be included in the HTTP response
 pub fn set_response_headers(headers: HashMap<String, String>) {
     APP_HELPERS.with(|helpers| {
@@ -128,22 +161,16 @@ pub fn source() -> Address {
     })
 }
 
-/// Get query parameters from the current HTTP request path
-/// Returns None if not in an HTTP context or no query parameters present
+/// Get the pre-parsed query parameters from the current HTTP request
+/// Returns None if not in an HTTP context
+/// This accesses the query_params field that Hyperware already parsed (includes URL decoding)
 pub fn get_query_params() -> Option<HashMap<String, String>> {
-    get_path().map(|path| {
-        let mut params = HashMap::new();
-        if let Some(query_start) = path.find('?') {
-            let query = &path[query_start + 1..];
-            for pair in query.split('&') {
-                if let Some(eq_pos) = pair.find('=') {
-                    let key = pair[..eq_pos].to_string();
-                    let value = pair[eq_pos + 1..].to_string();
-                    params.insert(key, value);
-                }
-            }
-        }
-        params
+    APP_HELPERS.with(|helpers| {
+        helpers
+            .borrow()
+            .current_http_context
+            .as_ref()
+            .map(|ctx| ctx.request.query_params().clone())
     })
 }
 
