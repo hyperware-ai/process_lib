@@ -1270,6 +1270,30 @@ pub fn preview_combined_lock(
     (total_amount, combined_duration)
 }
 
+/// Given a desired weighted duration, compute the required additional lock duration.
+///
+/// This inverts the weighted-average equation used by the TokenRegistry so callers can
+/// determine which duration to supply to `manageLock` in order to reach a target lock end.
+/// Returns `None` if the additional amount is zero or if the math underflows.
+pub fn required_additional_duration(
+    existing_amount: U256,
+    existing_duration: U256,
+    additional_amount: U256,
+    desired_weighted_duration: U256,
+) -> Option<U256> {
+    if additional_amount.is_zero() {
+        return None;
+    }
+    let total_amount = existing_amount + additional_amount;
+    let desired_total_weighted = desired_weighted_duration.saturating_mul(total_amount);
+    if desired_total_weighted < existing_amount.saturating_mul(existing_duration) {
+        return None;
+    }
+    let numerator =
+        desired_total_weighted - existing_amount.saturating_mul(existing_duration);
+    Some(numerator / additional_amount)
+}
+
 // ... existing code ...
 
 impl Serialize for ManifestItem {
