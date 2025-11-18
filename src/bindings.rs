@@ -1247,6 +1247,29 @@ impl Bindings {
     }
 }
 
+/// Preview the combined lock amount and weighted duration when additional HYPR is added to a lock.
+///
+/// This uses the same weighted-average technique as the TokenRegistry: the resulting duration is
+/// the sum of each lock's `amount * duration`, divided by the combined amount. If the total amount
+/// is zero, the combined duration is also zero.
+pub fn preview_combined_lock(
+    existing_amount: U256,
+    existing_duration: U256,
+    additional_amount: U256,
+    additional_duration: U256,
+) -> (U256, U256) {
+    let total_amount = existing_amount + additional_amount;
+    if total_amount.is_zero() {
+        return (U256::ZERO, U256::ZERO);
+    }
+
+    let existing_weighted = existing_amount.saturating_mul(existing_duration);
+    let additional_weighted = additional_amount.saturating_mul(additional_duration);
+    let combined_duration = (existing_weighted + additional_weighted) / total_amount;
+
+    (total_amount, combined_duration)
+}
+
 // ... existing code ...
 
 impl Serialize for ManifestItem {
