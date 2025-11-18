@@ -1289,8 +1289,7 @@ pub fn required_additional_duration(
     if desired_total_weighted < existing_amount.saturating_mul(existing_duration) {
         return None;
     }
-    let numerator =
-        desired_total_weighted - existing_amount.saturating_mul(existing_duration);
+    let numerator = desired_total_weighted - existing_amount.saturating_mul(existing_duration);
     Some(numerator / additional_amount)
 }
 
