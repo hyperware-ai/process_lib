@@ -32,7 +32,6 @@ wit_bindgen::generate!({
 
 /// Interact with the tokenregistry contract data
 pub mod bindings;
-/// Currently nothing in here except for the contract address.
 
 /// Interact with the eth provider module.
 pub mod eth;
