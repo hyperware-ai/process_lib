@@ -1,5 +1,8 @@
 use super::{parse_response, vfs_request, DirEntry, FileType, VfsAction, VfsError, VfsResponse};
 
+#[cfg(feature = "hyperapp")]
+pub mod directory_async;
+
 /// VFS (Virtual File System) helper struct for a directory.
 /// Opening or creating a directory will give you a `Result<Directory>`.
 /// You can call it's impl functions to interact with it.
@@ -79,6 +82,7 @@ pub fn open_dir(path: &str, create: bool, timeout: Option<u64>) -> Result<Direct
 }
 
 /// Removes a dir at path, errors if path not found or path is not a `Directory`.
+#[cfg(not(feature = "hyperapp"))]
 pub fn remove_dir(path: &str, timeout: Option<u64>) -> Result<(), VfsError> {
     let timeout = timeout.unwrap_or(5);
 
@@ -95,4 +99,10 @@ pub fn remove_dir(path: &str, timeout: Option<u64>) -> Result<(), VfsError> {
             path: path.to_string(),
         }),
     }
+}
+
+/// Removes a dir at path, errors if path not found or path is not a `Directory`.
+#[cfg(feature = "hyperapp")]
+pub async fn remove_dir(path: &str, timeout: Option<u64>) -> Result<(), VfsError> {
+    directory_async::remove_dir_async(path, timeout).await
 }

@@ -124,6 +124,7 @@ where
 }
 
 /// Metadata of a path, returns file type and length.
+#[cfg(not(feature = "hyperapp"))]
 pub fn metadata(path: &str, timeout: Option<u64>) -> Result<FileMetadata, VfsError> {
     let timeout = timeout.unwrap_or(5);
 
@@ -142,13 +143,50 @@ pub fn metadata(path: &str, timeout: Option<u64>) -> Result<FileMetadata, VfsErr
     }
 }
 
+/// Metadata of a path, returns file type and length.
+#[cfg(feature = "hyperapp")]
+pub async fn metadata(path: &str, timeout: Option<u64>) -> Result<FileMetadata, VfsError> {
+    let timeout = timeout.unwrap_or(5);
+
+    let request = vfs_request(path, VfsAction::Metadata).expects_response(timeout);
+
+    let response = crate::hyperapp::send::<VfsResponse>(request)
+        .await
+        .map_err(|_| VfsError::SendError(crate::SendErrorKind::Timeout))?;
+
+    match response {
+        VfsResponse::Metadata(metadata) => Ok(metadata),
+        VfsResponse::Err(e) => Err(e),
+        _ => Err(VfsError::ParseError {
+            error: "unexpected response".to_string(),
+            path: path.to_string(),
+        }),
+    }
+}
+
 /// Removes a path, if it's either a directory or a file.
+#[cfg(not(feature = "hyperapp"))]
 pub fn remove_path(path: &str, timeout: Option<u64>) -> Result<(), VfsError> {
     let meta = metadata(path, timeout)?;
 
     match meta.file_type {
         FileType::Directory => remove_dir(path, timeout),
         FileType::File => remove_file(path, timeout),
+        _ => Err(VfsError::ParseError {
+            error: "path is not a file or directory".to_string(),
+            path: path.to_string(),
+        }),
+    }
+}
+
+/// Removes a path, if it's either a directory or a file.
+#[cfg(feature = "hyperapp")]
+pub async fn remove_path(path: &str, timeout: Option<u64>) -> Result<(), VfsError> {
+    let meta = metadata(path, timeout).await?;
+
+    match meta.file_type {
+        FileType::Directory => directory::remove_dir(path, timeout).await,
+        FileType::File => file::remove_file(path, timeout).await,
         _ => Err(VfsError::ParseError {
             error: "path is not a file or directory".to_string(),
             path: path.to_string(),
