@@ -1,6 +1,6 @@
 use crate::eth::{BlockNumberOrTag, EthError, Filter as EthFilter, Provider};
 use alloy::rpc::types::request::{TransactionInput, TransactionRequest};
-use alloy_primitives::{Address, Bytes, FixedBytes, U256, B256, keccak256};
+use alloy_primitives::{keccak256, Address, Bytes, FixedBytes, B256, U256};
 use alloy_sol_macro::sol;
 use alloy_sol_types::{SolCall, SolEvent};
 
@@ -109,9 +109,15 @@ impl DaoContracts {
 
     /// Fetch role IDs from the timelock.
     pub fn roles(&self) -> Result<(FixedBytes<32>, FixedBytes<32>, FixedBytes<32>), EthError> {
-        let proposer = self.call_view(self.timelock, TimelockController::PROPOSER_ROLECall {})?._0;
-        let executor = self.call_view(self.timelock, TimelockController::EXECUTOR_ROLECall {})?._0;
-        let canceller = self.call_view(self.timelock, TimelockController::CANCELLER_ROLECall {})?._0;
+        let proposer = self
+            .call_view(self.timelock, TimelockController::PROPOSER_ROLECall {})?
+            ._0;
+        let executor = self
+            .call_view(self.timelock, TimelockController::EXECUTOR_ROLECall {})?
+            ._0;
+        let canceller = self
+            .call_view(self.timelock, TimelockController::CANCELLER_ROLECall {})?
+            ._0;
         Ok((proposer, executor, canceller))
     }
 
@@ -119,10 +125,7 @@ impl DaoContracts {
     pub fn has_role(&self, role: FixedBytes<32>, account: Address) -> Result<bool, EthError> {
         let res = self.call_view(
             self.timelock,
-            TimelockController::hasRoleCall {
-                role,
-                account,
-            },
+            TimelockController::hasRoleCall { role, account },
         )?;
         Ok(res._0)
     }
@@ -290,9 +293,7 @@ impl DaoContracts {
         let mut out = Vec::new();
         for log in logs {
             let prim_log = log.inner.clone();
-            if let Ok(decoded) =
-                HyperwareGovernor::ProposalCreated::decode_log(&prim_log, true)
-            {
+            if let Ok(decoded) = HyperwareGovernor::ProposalCreated::decode_log(&prim_log, true) {
                 out.push(ProposalCreatedEvent {
                     proposal_id: decoded.proposalId,
                     proposer: decoded.proposer,
