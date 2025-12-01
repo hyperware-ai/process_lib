@@ -32,6 +32,8 @@ wit_bindgen::generate!({
 
 /// Interact with the tokenregistry contract data
 pub mod bindings;
+/// Interact with DAO (Timelock / Governor) contracts
+pub mod dao;
 
 /// Interact with the eth provider module.
 pub mod eth;
