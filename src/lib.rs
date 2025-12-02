@@ -375,7 +375,7 @@ pub enum WaitClassification {
     Unknown,
 }
 
-/// Poll a target process until it reports ready.
+/// Poll a target process until it reports ready while blocking.
 ///
 /// - `target`: process address to poll (e.g., hypermap-cacher).
 /// - `request_body`: request payload to send each attempt.
