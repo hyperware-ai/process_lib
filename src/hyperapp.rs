@@ -72,6 +72,12 @@ pub fn get_server() -> Option<&'static mut HttpServer> {
     APP_HELPERS.with(|ctx| ctx.borrow().current_server.map(|ptr| unsafe { &mut *ptr }))
 }
 
+/// Get the socket address for a WebSocket channel by its ID.
+/// Returns None if the channel doesn't exist or has no recorded address.
+pub fn get_ws_channel_addr(channel_id: u32) -> Option<String> {
+    get_server().and_then(|server| server.get_ws_channel_addr(channel_id).cloned())
+}
+
 pub fn get_http_request() -> Option<IncomingHttpRequest> {
     APP_HELPERS.with(|helpers| {
         helpers

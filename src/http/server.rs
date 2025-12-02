@@ -20,6 +20,8 @@ pub enum HttpServerRequest {
     WebSocketOpen {
         path: String,
         channel_id: u32,
+        #[serde(default)]
+        source_socket_addr: Option<String>,
     },
     /// Processes can both SEND and RECEIVE this kind of [`crate::Request`]
     /// (send as [`HttpServerAction::WebSocketPush`]).
@@ -300,6 +302,8 @@ pub struct HttpServer {
     ws_paths: HashMap<String, WsBindingConfig>,
     /// A mapping of WebSocket paths to the channels that are open on them.
     ws_channels: HashMap<String, HashSet<u32>>,
+    /// A mapping of WebSocket channel IDs to their client socket addresses.
+    ws_channel_addrs: HashMap<u32, String>,
     /// The timeout given for `http-server:distro:sys` to respond to a configuration request.
     pub timeout: u64,
 }
@@ -451,6 +455,7 @@ impl HttpServer {
             http_paths: HashMap::new(),
             ws_paths: HashMap::new(),
             ws_channels: HashMap::new(),
+            ws_channel_addrs: HashMap::new(),
             timeout,
         }
     }
@@ -983,11 +988,24 @@ impl HttpServer {
     }
 
     /// Handle a WebSocket open event from the HTTP server.
-    pub fn handle_websocket_open(&mut self, path: &str, channel_id: u32) {
+    pub fn handle_websocket_open(
+        &mut self,
+        path: &str,
+        channel_id: u32,
+        source_socket_addr: Option<String>,
+    ) {
         self.ws_channels
             .entry(path.to_string())
             .or_insert(HashSet::new())
             .insert(channel_id);
+        if let Some(addr) = source_socket_addr {
+            self.ws_channel_addrs.insert(channel_id, addr);
+        }
+    }
+
+    /// Get the socket address for a WebSocket channel.
+    pub fn get_ws_channel_addr(&self, channel_id: u32) -> Option<&String> {
+        self.ws_channel_addrs.get(&channel_id)
     }
 
     /// Handle a WebSocket close event from the HTTP server.
@@ -995,6 +1013,7 @@ impl HttpServer {
         self.ws_channels.iter_mut().for_each(|(_, channels)| {
             channels.remove(&channel_id);
         });
+        self.ws_channel_addrs.remove(&channel_id);
     }
 
     pub fn parse_request(&self, body: &[u8]) -> Result<HttpServerRequest, HttpServerError> {
@@ -1024,8 +1043,12 @@ impl HttpServer {
                 channel_id,
                 message_type,
             } => ws_handler(channel_id, message_type, last_blob().unwrap_or_default()),
-            HttpServerRequest::WebSocketOpen { path, channel_id } => {
-                self.handle_websocket_open(&path, channel_id);
+            HttpServerRequest::WebSocketOpen {
+                path,
+                channel_id,
+                source_socket_addr,
+            } => {
+                self.handle_websocket_open(&path, channel_id, source_socket_addr);
             }
             HttpServerRequest::WebSocketClose(channel_id) => {
                 self.handle_websocket_close(channel_id);
