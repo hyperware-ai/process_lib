@@ -14,7 +14,7 @@ use crate::{
     logging::{error, info},
     set_state, timer, Address, BuildError, LazyLoadBlob, Message, Request, SendError,
 };
-use futures_channel::{mpsc, oneshot};
+use futures_channel::oneshot;
 use futures_util::task::{waker_ref, ArcWake};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -522,17 +522,12 @@ where
 
 pub fn setup_server(
     ui_config: Option<&HttpBindingConfig>,
-    ui_path: Option<String>,
     endpoints: &[Binding],
 ) -> http::server::HttpServer {
     let mut server = http::server::HttpServer::new(5);
 
     if let Some(ui) = ui_config {
-        if let Err(e) = server.serve_ui(
-            &ui_path.unwrap_or_else(|| "ui".to_string()),
-            vec!["/"],
-            ui.clone(),
-        ) {
+        if let Err(e) = server.serve_ui("ui", vec!["/"], ui.clone()) {
             panic!("failed to serve UI: {e}. Make sure that a ui folder is in /pkg");
         }
     }
@@ -597,6 +592,88 @@ pub fn pretty_print_send_error(error: &SendError) {
             .map(|s| format!("\"{}\"", s))
             .unwrap_or("None".to_string())
     );
+}
+
+/// Classification for readiness polling of another process.
+#[derive(Debug, PartialEq, Eq)]
+pub enum WaitClassification {
+    /// The target responded but indicated it is still starting up.
+    Starting,
+    /// The target is ready (or responded with a payload we consider ready).
+    Ready,
+    /// The target responded with an unknown payload.
+    Unknown,
+}
+
+/// Poll a target process until it reports ready.
+///
+/// - `target`: process address to poll (e.g., hypermap-cacher).
+/// - `request_body`: request payload to send each attempt.
+/// - `timeout_s`: per-request timeout in seconds.
+/// - `retry_delay_s`: delay between attempts when not ready or on error.
+/// - `classify`: function to classify the response body.
+/// - `treat_unknown_as_ready`: if true, any non-starting response is treated as ready.
+pub fn wait_for_process_ready<F>(
+    target: Address,
+    request_body: Vec<u8>,
+    timeout_s: u64,
+    retry_delay_s: u64,
+    mut classify: F,
+    treat_unknown_as_ready: bool,
+) where
+    F: FnMut(&[u8]) -> WaitClassification,
+{
+    let mut attempt = 1;
+    loop {
+        match Request::to(target.clone())
+            .body(request_body.clone())
+            .send_and_await_response(timeout_s)
+        {
+            Ok(Ok(response)) => {
+                let classification = classify(response.body());
+                match classification {
+                    WaitClassification::Starting => {
+                        info!(
+                            "Target {} still starting (attempt {}), retrying in {}s",
+                            target, attempt, retry_delay_s
+                        );
+                    }
+                    WaitClassification::Ready => {
+                        info!("Target {} ready after {} attempt(s)", target, attempt);
+                        break;
+                    }
+                    WaitClassification::Unknown => {
+                        if treat_unknown_as_ready {
+                            info!(
+                                "Target {} responded with unknown payload, proceeding as ready",
+                                target
+                            );
+                            break;
+                        } else {
+                            info!(
+                                "Target {} responded with unknown payload, retrying in {}s",
+                                target, retry_delay_s
+                            );
+                        }
+                    }
+                }
+            }
+            Ok(Err(e)) => {
+                info!(
+                    "Error response from {} (attempt {}): {:?}, retrying in {}s",
+                    target, attempt, e, retry_delay_s
+                );
+            }
+            Err(e) => {
+                info!(
+                    "Failed to contact {} (attempt {}): {:?}, retrying in {}s",
+                    target, attempt, e, retry_delay_s
+                );
+            }
+        }
+        attempt += 1;
+        std::thread::sleep(std::time::Duration::from_secs(retry_delay_s));
+    }
 }
 
 // For demonstration, we'll define them all in one place.

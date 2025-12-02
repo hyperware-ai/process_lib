@@ -1,42 +1,43 @@
 use crate::eth::{
     BlockNumberOrTag, EthError, Filter as EthFilter, FilterBlockOption, Log as EthLog, Provider,
 };
-use crate::hypermap::contract::getCall;
-use crate::hyperware::process::hypermap_cacher::{
-    CacherRequest, CacherResponse, CacherStatus, GetLogsByRangeOkResponse, GetLogsByRangeRequest,
-    LogsMetadata, Manifest, ManifestItem,
+use crate::hyperware::process::binding_cacher::{
+    BindingCacherRequest as CacherRequest, BindingCacherResponse as CacherResponse,
+    BindingCacherStatus as CacherStatus,
+    BindingGetLogsByRangeOkResponse as GetLogsByRangeOkResponse,
+    BindingGetLogsByRangeRequest as GetLogsByRangeRequest, BindingLogsMetadata as LogsMetadata,
+    BindingManifest as Manifest, BindingManifestItem as ManifestItem,
 };
-use crate::{net, sign};
-use crate::{print_to_terminal, Address as HyperAddress, Request};
+use crate::{print_to_terminal, Address as BindingAddress, Request};
 use alloy::hex;
 use alloy::rpc::types::request::{TransactionInput, TransactionRequest};
-use alloy_primitives::{keccak256, Address, Bytes, FixedBytes, B256};
+use alloy_primitives::{keccak256, Address, Bytes, FixedBytes, B256, U256};
 use alloy_sol_types::{SolCall, SolEvent, SolValue};
-use contract::tokenCall;
 use serde::{
     self,
     de::{self, MapAccess, Visitor},
     ser::{SerializeMap, SerializeStruct},
     Deserialize, Deserializer, Serialize, Serializer,
 };
-use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
 
-/// hypermap deployment address on base
-pub const HYPERMAP_ADDRESS: &'static str = "0x000000000044C6B8Cb4d8f0F889a3E47664EAeda";
-
+/// bindings data deployment address on base
 #[cfg(not(feature = "simulation-mode"))]
-pub const HYPERMAP_CHAIN_ID: u64 = 8453; // base
+pub const BINDINGS_ADDRESS: &'static str = "0x0000000000e8d224B902632757d5dbc51a451456";
 #[cfg(feature = "simulation-mode")]
-pub const HYPERMAP_CHAIN_ID: u64 = 31337; // fakenet
-/// first block (minus one) of hypermap deployment on base
+pub const BINDINGS_ADDRESS: &'static str = "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6";
 #[cfg(not(feature = "simulation-mode"))]
-pub const HYPERMAP_FIRST_BLOCK: u64 = 27_270_411;
+pub const BINDINGS_CHAIN_ID: u64 = 8453; // base
 #[cfg(feature = "simulation-mode")]
-pub const HYPERMAP_FIRST_BLOCK: u64 = 0;
-/// the root hash of hypermap, empty bytes32
-pub const HYPERMAP_ROOT_HASH: &'static str =
+pub const BINDINGS_CHAIN_ID: u64 = 31337; // fakenet
+/// first block (minus one) of tokenregistry deployment on base
+#[cfg(not(feature = "simulation-mode"))]
+pub const BINDINGS_FIRST_BLOCK: u64 = 36_283_831;
+#[cfg(feature = "simulation-mode")]
+pub const BINDINGS_FIRST_BLOCK: u64 = 0;
+/// the root hash of tokenregistry, empty bytes32
+pub const BINDINGS_ROOT_HASH: &'static str =
     "0x0000000000000000000000000000000000000000000000000000000000000000";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -47,542 +48,445 @@ pub struct LogCache {
 
 const CACHER_REQUEST_TIMEOUT_S: u64 = 15;
 
-/// Sol structures for Hypermap requests
+/// Sol structures for TokenRegistry requests/events.
 pub mod contract {
     use alloy_sol_macro::sol;
 
     sol! {
-        /// Emitted when a new namespace entry is minted.
-        /// - parenthash: The hash of the parent namespace entry.
-        /// - childhash: The hash of the minted namespace entry's full path.
-        /// - labelhash: The hash of only the label (the final entry in the path).
-        /// - label: The label (the final entry in the path) of the new entry.
-        event Mint(
-            bytes32 indexed parenthash,
-            bytes32 indexed childhash,
-            bytes indexed labelhash,
-            bytes label
+        struct Bind {
+            uint256 amount;
+            uint256 endTime;
+        }
+
+        error InvalidAdmin();
+        error InvalidAmount(uint256 amount, uint256 minRequiredAmount, uint256 maxAmount);
+        error InvalidDuration(uint256 duration, uint256 minDuration, uint256 maxDuration);
+        error NoLockExists();
+        error LockExpired(uint256 endTime);
+        error LockNotExpired(uint256 endTime);
+        error InvalidParam(uint256 param);
+        error UnsupportedToken(address token);
+        error ZeroAmount();
+        error SourceNotExpired(bytes32 namehash, uint256 endTime);
+        error ZeroDurationForNewBind();
+        error ZeroAmountForNewBind();
+        error DefaultDestinationInvalidParams(uint256 amount, uint256 duration);
+        error InsufficientLockAmount(uint256 currentlyLocked, uint256 requested);
+        error OnlyGovernanceTokenCanCall();
+        error GHyprAlreadySet();
+
+        event TokensLocked(
+            address indexed account,
+            uint256 amount,
+            uint256 duration,
+            uint256 balance,
+            uint256 endTime
         );
 
-        /// Emitted when a fact is created on an existing namespace entry.
-        /// Facts are immutable and may only be written once. A fact label is
-        /// prepended with an exclamation mark (!) to indicate that it is a fact.
-        /// - parenthash The hash of the parent namespace entry.
-        /// - facthash The hash of the newly created fact's full path.
-        /// - labelhash The hash of only the label (the final entry in the path).
-        /// - label The label of the fact.
-        /// - data The data stored at the fact.
-        event Fact(
-            bytes32 indexed parenthash,
-            bytes32 indexed facthash,
-            bytes indexed labelhash,
-            bytes label,
-            bytes data
+        event LockExtended(
+            address indexed account,
+            uint256 duration,
+            uint256 balance,
+            uint256 endTime
         );
 
-        /// Emitted when a new note is created on an existing namespace entry.
-        /// Notes are mutable. A note label is prepended with a tilde (~) to indicate
-        /// that it is a note.
-        /// - parenthash: The hash of the parent namespace entry.
-        /// - notehash: The hash of the newly created note's full path.
-        /// - labelhash: The hash of only the label (the final entry in the path).
-        /// - label: The label of the note.
-        /// - data: The data stored at the note.
-        event Note(
-            bytes32 indexed parenthash,
-            bytes32 indexed notehash,
-            bytes indexed labelhash,
-            bytes label,
-            bytes data
+        event TokensWithdrawn(
+            address indexed user,
+            uint256 amountWithdrawn,
+            uint256 remainingAmount,
+            uint256 endTime
         );
 
-        /// Emitted when a gene is set for an existing namespace entry.
-        /// A gene is a specific TBA implementation which will be applied to all
-        /// sub-entries of the namespace entry.
-        /// - entry: The namespace entry's namehash.
-        /// - gene: The address of the TBA implementation.
-        event Gene(bytes32 indexed entry, address indexed gene);
-
-        /// Emitted when the zeroth namespace entry is minted.
-        /// Occurs exactly once at initialization.
-        /// - zeroTba: The address of the zeroth TBA
-        event Zero(address indexed zeroTba);
-
-        /// Emitted when a namespace entry is transferred from one address
-        /// to another.
-        /// - from: The address of the sender.
-        /// - to: The address of the recipient.
-        /// - id: The namehash of the namespace entry (converted to uint256).
-        event Transfer(
-            address indexed from,
-            address indexed to,
-            uint256 indexed id
+        event BindCreated(
+            address indexed user,
+            bytes32 indexed namehash,
+            uint256 amount,
+            uint256 endTime
         );
 
-        /// Emitted when a namespace entry is approved for transfer.
-        /// - owner: The address of the owner.
-        /// - spender: The address of the spender.
-        /// - id: The namehash of the namespace entry (converted to uint256).
-        event Approval(
-            address indexed owner,
-            address indexed spender,
-            uint256 indexed id
+        event BindAmountIncreased(
+            address indexed user,
+            bytes32 indexed namehash,
+            uint256 amount,
+            uint256 endTime
         );
 
-        /// Emitted when an operator is approved for all of an owner's
-        /// namespace entries.
-        /// - owner: The address of the owner.
-        /// - operator: The address of the operator.
-        /// - approved: Whether the operator is approved.
-        event ApprovalForAll(
-            address indexed owner,
-            address indexed operator,
-            bool approved
+        event BindDurationExtended(
+            address indexed user,
+            bytes32 indexed namehash,
+            uint256 amount,
+            uint256 endTime
         );
 
-        /// Retrieves information about a specific namespace entry.
-        /// - namehash The namehash of the namespace entry to query.
-        ///
-        /// Returns:
-        /// - tba: The address of the token-bound account associated
-        /// with the entry.
-        /// - owner: The address of the entry owner.
-        /// - data: The note or fact bytes associated with the entry
-        /// (empty if not a note or fact).
-        function get(
-            bytes32 namehash
-        ) external view returns (address tba, address owner, bytes memory data);
+        event TokensBound(
+            address indexed user,
+            bytes32 srcNamehash,
+            bytes32 dstNamehash,
+            uint256 amount
+        );
 
-        /// Mints a new namespace entry and creates a token-bound account for
-        /// it. Must be called by a parent namespace entry token-bound account.
-        /// - who: The address to own the new namespace entry.
-        /// - label: The label to mint beneath the calling parent entry.
-        /// - initialization: Initialization calldata applied to the new
-        /// minted entry's token-bound account.
-        /// - erc721Data: ERC-721 data -- passed to comply with
-        /// `ERC721TokenReceiver.onERC721Received()`.
-        /// - implementation: The address of the implementation contract for
-        /// the token-bound account: this will be overriden by the gene if the
-        /// parent entry has one set.
-        ///
-        /// Returns:
-        /// - tba: The address of the new entry's token-bound account.
-        function mint(
-            address who,
-            bytes calldata label,
-            bytes calldata initialization,
-            bytes calldata erc721Data,
-            address implementation
-        ) external returns (address tba);
+        event ExpiredBindReclaimed(
+            address indexed user,
+            bytes32 indexed namehash,
+            uint256 amount
+        );
 
-        /// Sets the gene for the calling namespace entry.
-        /// - _gene: The address of the TBA implementation to set for all
-        /// children of the calling namespace entry.
-        function gene(address _gene) external;
+        event Initialized(address indexed hypr, address indexed admin);
 
-        /// Creates a new fact beneath the calling namespace entry.
-        /// - fact: The fact label to create. Must be prepended with an
-        /// exclamation mark (!).
-        /// - data: The data to be stored at the fact.
-        ///
-        /// Returns:
-        /// - facthash: The namehash of the newly created fact.
-        function fact(
-            bytes calldata fact,
-            bytes calldata data
-        ) external returns (bytes32 facthash);
+        event GHyprSet(address indexed gHypr);
 
-        /// Creates a new note beneath the calling namespace entry.
-        /// - note: The note label to create. Must be prepended with a tilde (~).
-        /// - data: The data to be stored at the note.
-        ///
-        /// Returns:
-        /// - notehash: The namehash of the newly created note.
-        function note(
-            bytes calldata note,
-            bytes calldata data
-        ) external returns (bytes32 notehash);
+        /// Initializes the TokenRegistry with HYPR token and admin.
+        /// Reverts InvalidAdmin if admin is zero; UnsupportedToken if hypr is zero.
+        function initialize(address _hypr, address _admin) external;
 
-        /// Retrieves the token-bound account address of a namespace entry.
-        /// - entry: The entry namehash (as uint256) for which to get the
-        /// token-bound account.
-        ///
-        /// Returns:
-        /// - tba: The token-bound account address of the namespace entry.
-        function tbaOf(uint256 entry) external view returns (address tba);
+        /// Locks tokens or modifies an existing lock.
+        /// Emits TokensLocked/LockExtended. Reverts on zero amount, expired lock,
+        /// invalid amount, or invalid duration.
+        function manageLock(uint256 _amount, uint256 _duration) external;
 
-        function balanceOf(address owner) external view returns (uint256);
+        /// Returns true if the user's lock has expired.
+        function isLockExpired(address _account) external view returns (bool);
 
-        function getApproved(uint256 entry) external view returns (address);
+        /// Withdraws unlocked tokens, consolidating bindings first.
+        /// Emits TokensBound/TokensWithdrawn. May require multiple calls if many bindings.
+        function withdraw() external returns (bool);
 
-        function isApprovedForAll(
-            address owner,
-            address operator
-        ) external view returns (bool);
-
-        function ownerOf(uint256 entry) external view returns (address);
-
-        function setApprovalForAll(address operator, bool approved) external;
-
-        function approve(address spender, uint256 entry) external;
-
-        function safeTransferFrom(address from, address to, uint256 id) external;
-
-        function safeTransferFrom(
-            address from,
-            address to,
-            uint256 id,
-            bytes calldata data
-        ) external;
-
-        function transferFrom(address from, address to, uint256 id) external;
-
-        function supportsInterface(bytes4 interfaceId) external view returns (bool);
-
-        /// Gets the token identifier that owns this token-bound account (TBA).
-        /// This is a core function of the ERC-6551 standard that returns the
-        /// identifying information about the NFT that owns this account.
-        /// The return values are constant and cannot change over time.
-        ///
-        /// Returns:
-        /// - chainId: The EIP-155 chain ID where the owning NFT exists
-        /// - tokenContract: The contract address of the owning NFT
-        /// - tokenId: The token ID of the owning NFT
-        function token()
+        /// Retrieves lock details for a user.
+        function getLockDetails(address _user)
             external
             view
-            returns (uint256 chainId, address tokenContract, uint256 tokenId);
+            returns (uint256 amount, uint256 endTime, uint256 remainingTime);
+
+        /// Retrieves registration details for a user/namehash.
+        function getRegistrationDetails(bytes32 _namehash, address _user)
+            external
+            view
+            returns (uint256 amount, uint256 endTime, uint256 remainingTime);
+
+        /// Transfers tokens between registrations for the caller.
+        /// Source must be expired or default. Emits TokensBound/BindCreated/
+        /// BindAmountIncreased/BindDurationExtended. Reverts on invalid duration,
+        /// invalid params for default dest, expired lock, unexpired source, or zero
+        /// amount/duration for new binds.
+        function transferRegistration(
+            bytes32 _srcNamehash,
+            bytes32 _dstNamehash,
+            uint256 _maxAmount,
+            uint256 _duration
+        ) external;
+
+        /// Returns all binding namehashes for a user.
+        function getUserBinds(address _user) external view returns (bytes32[] memory);
+
+        /// Calculates sublinear voting power for a balance/duration.
+        function calculateVotingPower(uint256 _value, uint256 _lockDuration)
+            external
+            view
+            returns (uint256);
+
+        /// Gets the multiplier for an account (or total supply if zero) at a timepoint.
+        function getMultiplier(address _account, uint256 _timepoint)
+            external
+            view
+            returns (uint256);
+
+        /// Gets the user's unlock timestamp.
+        function getUserUnlockStamp(address _account) external view returns (uint256);
+
+        /// Gets user's unlock or delegated unlock timestamp, whichever is later.
+        function getUserOrDelegatedUnlockStamp(address _account) external view returns (uint256);
+
+        /// Updates voting multipliers when delegation changes.
+        /// Only callable by governance token; reverts otherwise.
+        function updateDelegationMultipliers(
+            uint256 _unlockTime,
+            uint256 _movedVotes,
+            address _sender,
+            uint256 _senderVotesBefore,
+            address _dst,
+            uint256 _dstVotesBefore
+        ) external;
+
+        /// Calculates weighted unlock timestamp for locks.
+        function calculateWeightedUnlockStamp(
+            uint256 _remainingDuration,
+            uint256 _currentBalance,
+            uint256 _newLockDuration,
+            uint256 _newLockAmount
+        ) external view returns (uint256);
+
+        /// Calculates required new lock duration to hit a desired unlock stamp.
+        /// Reverts InvalidParam if unlockStamp is in the past or newLockAmount is zero.
+        function calculateNewLockDuration(
+            uint256 _unlockStamp,
+            uint256 _remainingDuration,
+            uint256 _currentBalance,
+            uint256 _newLockAmount
+        ) external view returns (uint256);
+
+        function hypr() external view returns (address);
     }
 }
 
-/// A mint log from the hypermap, converted to a 'resolved' format using
-/// namespace data saved in the hns-indexer.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Mint {
-    pub name: String,
-    pub parent_path: String,
-}
+mod erc20 {
+    use alloy_sol_macro::sol;
 
-/// A note log from the hypermap, converted to a 'resolved' format using
-/// namespace data saved in the hns-indexer
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Note {
-    pub note: String,
-    pub parent_path: String,
-    pub data: Bytes,
-}
-
-/// A fact log from the hypermap, converted to a 'resolved' format using
-/// namespace data saved in the hns-indexer
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Fact {
-    pub fact: String,
-    pub parent_path: String,
-    pub data: Bytes,
-}
-
-/// Errors that can occur when decoding a log from the hypermap using
-/// [`decode_mint_log()`] or [`decode_note_log()`].
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum DecodeLogError {
-    /// The log's topic is not a mint or note event.
-    UnexpectedTopic(B256),
-    /// The name is not valid (according to [`valid_name`]).
-    InvalidName(String),
-    /// An error occurred while decoding the log.
-    DecodeError(String),
-    /// The parent name could not be resolved with `hns-indexer`.
-    UnresolvedParent(String),
-}
-
-impl fmt::Display for DecodeLogError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DecodeLogError::UnexpectedTopic(topic) => write!(f, "Unexpected topic: {:?}", topic),
-            DecodeLogError::InvalidName(name) => write!(f, "Invalid name: {}", name),
-            DecodeLogError::DecodeError(err) => write!(f, "Decode error: {}", err),
-            DecodeLogError::UnresolvedParent(parent) => {
-                write!(f, "Could not resolve parent: {}", parent)
-            }
+    sol! {
+        interface IERC20 {
+            function balanceOf(address account) external view returns (uint256);
+            function allowance(address owner, address spender) external view returns (uint256);
         }
     }
 }
 
-impl Error for DecodeLogError {}
-
-/// Canonical function to determine if a hypermap entry is valid.
-///
-/// This checks a **single name**, not the full path-name. A full path-name
-/// is comprised of valid names separated by `.`
-pub fn valid_entry(entry: &str, note: bool, fact: bool) -> bool {
-    if note && fact {
-        return false;
-    }
-    if note {
-        valid_note(entry)
-    } else if fact {
-        valid_fact(entry)
-    } else {
-        valid_name(entry)
-    }
-}
-
-pub fn valid_name(name: &str) -> bool {
-    name.is_ascii()
-        && name.len() >= 1
-        && name
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-}
-
-pub fn valid_note(note: &str) -> bool {
-    note.is_ascii()
-        && note.len() >= 2
-        && note.chars().next() == Some('~')
-        && note
-            .chars()
-            .skip(1)
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-}
-
-pub fn valid_fact(fact: &str) -> bool {
-    fact.is_ascii()
-        && fact.len() >= 2
-        && fact.chars().next() == Some('!')
-        && fact
-            .chars()
-            .skip(1)
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-}
-
-/// Produce a namehash from a hypermap name.
-pub fn namehash(name: &str) -> String {
-    let mut node = B256::default();
-
+/// Canonical helper used throughout to hash dotted Hypermap paths into bytes32.
+pub fn namehash(name: &str) -> FixedBytes<32> {
+    let mut node = B256::ZERO;
     let mut labels: Vec<&str> = name.split('.').collect();
     labels.reverse();
 
     for label in labels.iter() {
-        let l = keccak256(label);
+        let l = keccak256(label.as_bytes());
         node = keccak256((node, l).abi_encode_packed());
     }
-    format!("0x{}", hex::encode(node))
+
+    FixedBytes::from(node)
 }
 
-/// Decode a mint log from the hypermap into a 'resolved' format.
-///
-/// Uses [`valid_name()`] to check if the name is valid.
-#[cfg(not(feature = "hyperapp"))]
-pub fn decode_mint_log(log: &crate::eth::Log) -> Result<Mint, DecodeLogError> {
-    let contract::Note::SIGNATURE_HASH = log.topics()[0] else {
-        return Err(DecodeLogError::UnexpectedTopic(log.topics()[0]));
-    };
-    let decoded = contract::Mint::decode_log_data(log.data(), true)
-        .map_err(|e| DecodeLogError::DecodeError(e.to_string()))?;
-    let name = String::from_utf8_lossy(&decoded.label).to_string();
-    if !valid_name(&name) {
-        return Err(DecodeLogError::InvalidName(name));
-    }
-    match resolve_parent(log, None) {
-        Some(parent_path) => Ok(Mint { name, parent_path }),
-        None => Err(DecodeLogError::UnresolvedParent(name)),
-    }
+/// Details returned from `getLockDetails`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LockDetails {
+    pub amount: U256,
+    pub end_time: U256,
+    pub remaining_time: U256,
 }
 
-/// Decode a mint log from the hypermap into a 'resolved' format.
-///
-/// Uses [`valid_name()`] to check if the name is valid.
-#[cfg(feature = "hyperapp")]
-pub async fn decode_mint_log(log: &crate::eth::Log) -> Result<Mint, DecodeLogError> {
-    let contract::Note::SIGNATURE_HASH = log.topics()[0] else {
-        return Err(DecodeLogError::UnexpectedTopic(log.topics()[0]));
-    };
-    let decoded = contract::Mint::decode_log_data(log.data(), true)
-        .map_err(|e| DecodeLogError::DecodeError(e.to_string()))?;
-    let name = String::from_utf8_lossy(&decoded.label).to_string();
-    if !valid_name(&name) {
-        return Err(DecodeLogError::InvalidName(name));
-    }
-    match resolve_parent(log, None).await {
-        Some(parent_path) => Ok(Mint { name, parent_path }),
-        None => Err(DecodeLogError::UnresolvedParent(name)),
-    }
+/// Details returned from `getRegistrationDetails`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RegistrationDetails {
+    pub amount: U256,
+    pub end_time: U256,
+    pub remaining_time: U256,
 }
 
-/// Decode a note log from the hypermap into a 'resolved' format.
-///
-/// Uses [`valid_name()`] to check if the name is valid.
-#[cfg(not(feature = "hyperapp"))]
-pub fn decode_note_log(log: &crate::eth::Log) -> Result<Note, DecodeLogError> {
-    let contract::Note::SIGNATURE_HASH = log.topics()[0] else {
-        return Err(DecodeLogError::UnexpectedTopic(log.topics()[0]));
-    };
-    let decoded = contract::Note::decode_log_data(log.data(), true)
-        .map_err(|e| DecodeLogError::DecodeError(e.to_string()))?;
-    let note = String::from_utf8_lossy(&decoded.label).to_string();
-    if !valid_note(&note) {
-        return Err(DecodeLogError::InvalidName(note));
-    }
-    match resolve_parent(log, None) {
-        Some(parent_path) => Ok(Note {
-            note,
-            parent_path,
-            data: decoded.data,
-        }),
-        None => Err(DecodeLogError::UnresolvedParent(note)),
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum DecodeBindingLogError {
+    UnexpectedTopic(B256),
+    MissingTopic(usize),
+    DecodeError(String),
+}
+
+fn topic_as_address(topic: &B256) -> Address {
+    let bytes = topic.as_slice();
+    Address::from_slice(&bytes[12..32])
+}
+
+fn expect_topic(log: &EthLog, expected: B256) -> Result<(), DecodeBindingLogError> {
+    match log.topics().first().copied() {
+        Some(topic) if topic == expected => Ok(()),
+        other => Err(DecodeBindingLogError::UnexpectedTopic(
+            other.unwrap_or_default(),
+        )),
     }
 }
 
-/// Decode a note log from the hypermap into a 'resolved' format.
-///
-/// Uses [`valid_name()`] to check if the name is valid.
-#[cfg(feature = "hyperapp")]
-pub async fn decode_note_log(log: &crate::eth::Log) -> Result<Note, DecodeLogError> {
-    let contract::Note::SIGNATURE_HASH = log.topics()[0] else {
-        return Err(DecodeLogError::UnexpectedTopic(log.topics()[0]));
-    };
-    let decoded = contract::Note::decode_log_data(log.data(), true)
-        .map_err(|e| DecodeLogError::DecodeError(e.to_string()))?;
-    let note = String::from_utf8_lossy(&decoded.label).to_string();
-    if !valid_note(&note) {
-        return Err(DecodeLogError::InvalidName(note));
-    }
-    match resolve_parent(log, None).await {
-        Some(parent_path) => Ok(Note {
-            note,
-            parent_path,
-            data: decoded.data,
-        }),
-        None => Err(DecodeLogError::UnresolvedParent(note)),
-    }
+fn topic_at(log: &EthLog, idx: usize) -> Result<B256, DecodeBindingLogError> {
+    log.topics()
+        .get(idx)
+        .copied()
+        .ok_or(DecodeBindingLogError::MissingTopic(idx))
 }
 
-#[cfg(not(feature = "hyperapp"))]
-pub fn decode_fact_log(log: &crate::eth::Log) -> Result<Fact, DecodeLogError> {
-    let contract::Fact::SIGNATURE_HASH = log.topics()[0] else {
-        return Err(DecodeLogError::UnexpectedTopic(log.topics()[0]));
-    };
-    let decoded = contract::Fact::decode_log_data(log.data(), true)
-        .map_err(|e| DecodeLogError::DecodeError(e.to_string()))?;
-    let fact = String::from_utf8_lossy(&decoded.label).to_string();
-    if !valid_fact(&fact) {
-        return Err(DecodeLogError::InvalidName(fact));
-    }
-    match resolve_parent(log, None) {
-        Some(parent_path) => Ok(Fact {
-            fact,
-            parent_path,
-            data: decoded.data,
-        }),
-        None => Err(DecodeLogError::UnresolvedParent(fact)),
-    }
+fn decode_data<T>(result: Result<T, alloy_sol_types::Error>) -> Result<T, DecodeBindingLogError> {
+    result.map_err(|e| DecodeBindingLogError::DecodeError(e.to_string()))
 }
 
-#[cfg(feature = "hyperapp")]
-pub async fn decode_fact_log(log: &crate::eth::Log) -> Result<Fact, DecodeLogError> {
-    let contract::Fact::SIGNATURE_HASH = log.topics()[0] else {
-        return Err(DecodeLogError::UnexpectedTopic(log.topics()[0]));
-    };
-    let decoded = contract::Fact::decode_log_data(log.data(), true)
-        .map_err(|e| DecodeLogError::DecodeError(e.to_string()))?;
-    let fact = String::from_utf8_lossy(&decoded.label).to_string();
-    if !valid_fact(&fact) {
-        return Err(DecodeLogError::InvalidName(fact));
-    }
-    match resolve_parent(log, None).await {
-        Some(parent_path) => Ok(Fact {
-            fact,
-            parent_path,
-            data: decoded.data,
-        }),
-        None => Err(DecodeLogError::UnresolvedParent(fact)),
-    }
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TokensLockedLog {
+    pub account: Address,
+    pub amount: U256,
+    pub duration: U256,
+    pub balance: U256,
+    pub end_time: U256,
 }
 
-/// Given a [`crate::eth::Log`] (which must be a log from hypermap), resolve the parent name
-/// of the new entry or note.
-#[cfg(not(feature = "hyperapp"))]
-pub fn resolve_parent(log: &crate::eth::Log, timeout: Option<u64>) -> Option<String> {
-    let parent_hash = log.topics()[1].to_string();
-    net::get_name(&parent_hash, log.block_number, timeout)
+pub fn decode_tokens_locked_log(log: &EthLog) -> Result<TokensLockedLog, DecodeBindingLogError> {
+    expect_topic(log, contract::TokensLocked::SIGNATURE_HASH)?;
+    let account = topic_as_address(&topic_at(log, 1)?);
+    let decoded = decode_data(contract::TokensLocked::decode_log_data(log.data(), true))?;
+    Ok(TokensLockedLog {
+        account,
+        amount: decoded.amount,
+        duration: decoded.duration,
+        balance: decoded.balance,
+        end_time: decoded.endTime,
+    })
 }
 
-/// Given a [`crate::eth::Log`] (which must be a log from hypermap), resolve the parent name
-/// of the new entry or note.
-#[cfg(feature = "hyperapp")]
-pub async fn resolve_parent(log: &crate::eth::Log, timeout: Option<u64>) -> Option<String> {
-    let parent_hash = log.topics()[1].to_string();
-    net::get_name(&parent_hash, log.block_number, timeout).await
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LockExtendedLog {
+    pub account: Address,
+    pub duration: U256,
+    pub balance: U256,
+    pub end_time: U256,
 }
 
-/// Given a [`crate::eth::Log`] (which must be a log from hypermap), resolve the full name
-/// of the new entry or note.
-///
-/// Uses [`valid_name()`] to check if the name is valid.
-#[cfg(not(feature = "hyperapp"))]
-pub fn resolve_full_name(log: &crate::eth::Log, timeout: Option<u64>) -> Option<String> {
-    let parent_hash = log.topics()[1].to_string();
-    let parent_name = net::get_name(&parent_hash, log.block_number, timeout)?;
-    let log_name = match log.topics()[0] {
-        contract::Mint::SIGNATURE_HASH => {
-            let decoded = contract::Mint::decode_log_data(log.data(), true).unwrap();
-            decoded.label
-        }
-        contract::Note::SIGNATURE_HASH => {
-            let decoded = contract::Note::decode_log_data(log.data(), true).unwrap();
-            decoded.label
-        }
-        contract::Fact::SIGNATURE_HASH => {
-            let decoded = contract::Fact::decode_log_data(log.data(), true).unwrap();
-            decoded.label
-        }
-        _ => return None,
-    };
-    let name = String::from_utf8_lossy(&log_name);
-    if !valid_entry(
-        &name,
-        log.topics()[0] == contract::Note::SIGNATURE_HASH,
-        log.topics()[0] == contract::Fact::SIGNATURE_HASH,
-    ) {
-        return None;
-    }
-    Some(format!("{name}.{parent_name}"))
+pub fn decode_lock_extended_log(log: &EthLog) -> Result<LockExtendedLog, DecodeBindingLogError> {
+    expect_topic(log, contract::LockExtended::SIGNATURE_HASH)?;
+    let account = topic_as_address(&topic_at(log, 1)?);
+    let decoded = decode_data(contract::LockExtended::decode_log_data(log.data(), true))?;
+    Ok(LockExtendedLog {
+        account,
+        duration: decoded.duration,
+        balance: decoded.balance,
+        end_time: decoded.endTime,
+    })
 }
 
-/// Given a [`crate::eth::Log`] (which must be a log from hypermap), resolve the full name
-/// of the new entry or note.
-///
-/// Uses [`valid_name()`] to check if the name is valid.
-#[cfg(feature = "hyperapp")]
-pub async fn resolve_full_name(log: &crate::eth::Log, timeout: Option<u64>) -> Option<String> {
-    let parent_hash = log.topics()[1].to_string();
-    let parent_name = net::get_name(&parent_hash, log.block_number, timeout).await?;
-    let log_name = match log.topics()[0] {
-        contract::Mint::SIGNATURE_HASH => {
-            let decoded = contract::Mint::decode_log_data(log.data(), true).unwrap();
-            decoded.label
-        }
-        contract::Note::SIGNATURE_HASH => {
-            let decoded = contract::Note::decode_log_data(log.data(), true).unwrap();
-            decoded.label
-        }
-        contract::Fact::SIGNATURE_HASH => {
-            let decoded = contract::Fact::decode_log_data(log.data(), true).unwrap();
-            decoded.label
-        }
-        _ => return None,
-    };
-    let name = String::from_utf8_lossy(&log_name);
-    if !valid_entry(
-        &name,
-        log.topics()[0] == contract::Note::SIGNATURE_HASH,
-        log.topics()[0] == contract::Fact::SIGNATURE_HASH,
-    ) {
-        return None;
-    }
-    Some(format!("{name}.{parent_name}"))
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TokensWithdrawnLog {
+    pub user: Address,
+    pub amount_withdrawn: U256,
+    pub remaining_amount: U256,
+    pub end_time: U256,
 }
 
+pub fn decode_tokens_withdrawn_log(
+    log: &EthLog,
+) -> Result<TokensWithdrawnLog, DecodeBindingLogError> {
+    expect_topic(log, contract::TokensWithdrawn::SIGNATURE_HASH)?;
+    let user = topic_as_address(&topic_at(log, 1)?);
+    let decoded = decode_data(contract::TokensWithdrawn::decode_log_data(log.data(), true))?;
+    Ok(TokensWithdrawnLog {
+        user,
+        amount_withdrawn: decoded.amountWithdrawn,
+        remaining_amount: decoded.remainingAmount,
+        end_time: decoded.endTime,
+    })
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct BindLog {
+    pub user: Address,
+    pub namehash: FixedBytes<32>,
+    pub amount: U256,
+    pub end_time: U256,
+}
+
+pub fn decode_bind_created_log(log: &EthLog) -> Result<BindLog, DecodeBindingLogError> {
+    expect_topic(log, contract::BindCreated::SIGNATURE_HASH)?;
+    let user = topic_as_address(&topic_at(log, 1)?);
+    let namehash = topic_at(log, 2)?;
+    let decoded = decode_data(contract::BindCreated::decode_log_data(log.data(), true))?;
+    Ok(BindLog {
+        user,
+        namehash,
+        amount: decoded.amount,
+        end_time: decoded.endTime,
+    })
+}
+
+pub fn decode_bind_amount_increased_log(log: &EthLog) -> Result<BindLog, DecodeBindingLogError> {
+    expect_topic(log, contract::BindAmountIncreased::SIGNATURE_HASH)?;
+    let user = topic_as_address(&topic_at(log, 1)?);
+    let namehash = topic_at(log, 2)?;
+    let decoded = decode_data(contract::BindAmountIncreased::decode_log_data(
+        log.data(),
+        true,
+    ))?;
+    Ok(BindLog {
+        user,
+        namehash,
+        amount: decoded.amount,
+        end_time: decoded.endTime,
+    })
+}
+
+pub fn decode_bind_duration_extended_log(log: &EthLog) -> Result<BindLog, DecodeBindingLogError> {
+    expect_topic(log, contract::BindDurationExtended::SIGNATURE_HASH)?;
+    let user = topic_as_address(&topic_at(log, 1)?);
+    let namehash = topic_at(log, 2)?;
+    let decoded = decode_data(contract::BindDurationExtended::decode_log_data(
+        log.data(),
+        true,
+    ))?;
+    Ok(BindLog {
+        user,
+        namehash,
+        amount: decoded.amount,
+        end_time: decoded.endTime,
+    })
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TokensBoundLog {
+    pub user: Address,
+    pub src_namehash: FixedBytes<32>,
+    pub dst_namehash: FixedBytes<32>,
+    pub amount: U256,
+}
+
+pub fn decode_tokens_bound_log(log: &EthLog) -> Result<TokensBoundLog, DecodeBindingLogError> {
+    expect_topic(log, contract::TokensBound::SIGNATURE_HASH)?;
+    let user = topic_as_address(&topic_at(log, 1)?);
+    let decoded = decode_data(contract::TokensBound::decode_log_data(log.data(), true))?;
+    Ok(TokensBoundLog {
+        user,
+        src_namehash: decoded.srcNamehash,
+        dst_namehash: decoded.dstNamehash,
+        amount: decoded.amount,
+    })
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ExpiredBindReclaimedLog {
+    pub user: Address,
+    pub namehash: FixedBytes<32>,
+    pub amount: U256,
+}
+
+pub fn decode_expired_bind_reclaimed_log(
+    log: &EthLog,
+) -> Result<ExpiredBindReclaimedLog, DecodeBindingLogError> {
+    expect_topic(log, contract::ExpiredBindReclaimed::SIGNATURE_HASH)?;
+    let user = topic_as_address(&topic_at(log, 1)?);
+    let namehash = topic_at(log, 2)?;
+    let decoded = decode_data(contract::ExpiredBindReclaimed::decode_log_data(
+        log.data(),
+        true,
+    ))?;
+    Ok(ExpiredBindReclaimedLog {
+        user,
+        namehash,
+        amount: decoded.amount,
+    })
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct InitializedLog {
+    pub hypr: Address,
+    pub admin: Address,
+}
+
+pub fn decode_initialized_log(log: &EthLog) -> Result<InitializedLog, DecodeBindingLogError> {
+    expect_topic(log, contract::Initialized::SIGNATURE_HASH)?;
+    let hypr = topic_as_address(&topic_at(log, 1)?);
+    let admin = topic_as_address(&topic_at(log, 2)?);
+    Ok(InitializedLog { hypr, admin })
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct GHyprSetLog {
+    pub g_hypr: Address,
+}
+
+pub fn decode_ghypr_set_log(log: &EthLog) -> Result<GHyprSetLog, DecodeBindingLogError> {
+    expect_topic(log, contract::GHyprSet::SIGNATURE_HASH)?;
+    let g_hypr = topic_as_address(&topic_at(log, 1)?);
+    Ok(GHyprSetLog { g_hypr })
+}
+
+/// Apply an ETH log filter to a set of logs (topic/address/block-range only).
 pub fn eth_apply_filter(logs: &[EthLog], filter: &EthFilter) -> Vec<EthLog> {
     let mut matched_logs = Vec::new();
 
@@ -604,10 +508,8 @@ pub fn eth_apply_filter(logs: &[EthLog], filter: &EthFilter) -> Vec<EthLog> {
 
     for log in logs.iter() {
         let mut match_address = filter.address.is_empty();
-        if !match_address {
-            if filter.address.matches(&log.address()) {
-                match_address = true;
-            }
+        if !match_address && filter.address.matches(&log.address()) {
+            match_address = true;
         }
         if !match_address {
             continue;
@@ -624,27 +526,17 @@ pub fn eth_apply_filter(logs: &[EthLog], filter: &EthFilter) -> Vec<EthLog> {
                     continue;
                 }
             }
-        } else {
-            if filter_from_block.is_some() || filter_to_block.is_some() {
-                continue;
-            }
+        } else if filter_from_block.is_some() || filter_to_block.is_some() {
+            continue;
         }
 
         let mut match_topics = true;
-        for (i, filter_topic_alternatives) in filter.topics.iter().enumerate() {
-            if filter_topic_alternatives.is_empty() {
+        for (i, alts) in filter.topics.iter().enumerate() {
+            if alts.is_empty() {
                 continue;
             }
-
             let log_topic = log.topics().get(i);
-            let mut current_topic_matched = false;
-            for filter_topic in filter_topic_alternatives.iter() {
-                if log_topic == Some(filter_topic) {
-                    current_topic_matched = true;
-                    break;
-                }
-            }
-            if !current_topic_matched {
+            if !alts.iter().any(|t| Some(t) == log_topic) {
                 match_topics = false;
                 break;
             }
@@ -657,168 +549,330 @@ pub fn eth_apply_filter(logs: &[EthLog], filter: &EthFilter) -> Vec<EthLog> {
     matched_logs
 }
 
-/// Helper struct for reading from the hypermap.
+/// Helper struct for reading binding data and local cacher bootstrap.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Hypermap {
+pub struct Bindings {
     pub provider: Provider,
     address: Address,
 }
 
-impl Hypermap {
-    /// Creates a new Hypermap instance with a specified address.
-    ///
-    /// # Arguments
-    /// * `provider` - A reference to the Provider.
-    /// * `address` - The address of the Hypermap contract.
+impl Bindings {
+    /// Creates a new Bindings instance with a specified address.
     pub fn new(provider: Provider, address: Address) -> Self {
         Self { provider, address }
     }
 
-    /// Creates a new Hypermap instance with the default address and chain ID.
+    /// Creates a new Bindings instance with the default address and chain ID.
     pub fn default(timeout: u64) -> Self {
-        let provider = Provider::new(HYPERMAP_CHAIN_ID, timeout);
-        Self::new(provider, Address::from_str(HYPERMAP_ADDRESS).unwrap())
+        let provider = Provider::new(BINDINGS_CHAIN_ID, timeout);
+        Self::new(provider, Address::from_str(BINDINGS_ADDRESS).unwrap())
     }
 
-    /// Returns the in-use Hypermap contract address.
+    /// Returns the in-use Bindings contract address.
     pub fn address(&self) -> &Address {
         &self.address
     }
 
-    /// Gets an entry from the Hypermap by its string-formatted name.
-    ///
-    /// # Parameters
-    /// - `path`: The name-path to get from the Hypermap.
-    /// # Returns
-    /// A `Result<(Address, Address, Option<Bytes>), EthError>` representing the TBA, owner,
-    /// and value if the entry exists and is a note.
-    pub fn get(&self, path: &str) -> Result<(Address, Address, Option<Bytes>), EthError> {
-        let get_call = getCall {
-            namehash: FixedBytes::<32>::from_str(&namehash(path))
-                .map_err(|_| EthError::InvalidParams)?,
-        }
-        .abi_encode();
+    fn call_view<Call>(&self, call: Call) -> Result<Call::Return, EthError>
+    where
+        Call: SolCall,
+    {
+        self.call_view_at(self.address, call)
+    }
 
+    fn call_view_at<Call>(&self, target: Address, call: Call) -> Result<Call::Return, EthError>
+    where
+        Call: SolCall,
+    {
         let tx_req = TransactionRequest::default()
-            .input(TransactionInput::new(get_call.into()))
-            .to(self.address);
-
+            .to(target)
+            .input(TransactionInput::new(Bytes::from(call.abi_encode())));
         let res_bytes = self.provider.call(tx_req, None)?;
-
-        let res = getCall::abi_decode_returns(&res_bytes, false)
-            .map_err(|_| EthError::RpcMalformedResponse)?;
-
-        let note_data = if res.data == Bytes::default() {
-            None
-        } else {
-            Some(res.data)
-        };
-
-        Ok((res.tba, res.owner, note_data))
+        Call::abi_decode_returns(&res_bytes, false).map_err(|_| EthError::RpcMalformedResponse)
     }
 
-    /// Gets an entry from the Hypermap by its hash.
-    ///
-    /// # Parameters
-    /// - `entryhash`: The entry to get from the Hypermap.
-    /// # Returns
-    /// A `Result<(Address, Address, Option<Bytes>), EthError>` representing the TBA, owner,
-    /// and value if the entry exists and is a note.
-    pub fn get_hash(&self, entryhash: &str) -> Result<(Address, Address, Option<Bytes>), EthError> {
-        let get_call = getCall {
-            namehash: FixedBytes::<32>::from_str(entryhash).map_err(|_| EthError::InvalidParams)?,
-        }
-        .abi_encode();
-
-        let tx_req = TransactionRequest::default()
-            .input(TransactionInput::new(get_call.into()))
-            .to(self.address);
-
-        let res_bytes = self.provider.call(tx_req, None)?;
-
-        let res = getCall::abi_decode_returns(&res_bytes, false)
-            .map_err(|_| EthError::RpcMalformedResponse)?;
-
-        let note_data = if res.data == Bytes::default() {
-            None
-        } else {
-            Some(res.data)
-        };
-
-        Ok((res.tba, res.owner, note_data))
+    fn build_tx<Call>(&self, call: Call) -> TransactionRequest
+    where
+        Call: SolCall,
+    {
+        TransactionRequest::default()
+            .to(self.address)
+            .input(TransactionInput::new(Bytes::from(call.abi_encode())))
     }
 
-    /// Gets a namehash from an existing TBA address.
-    ///
-    /// # Parameters
-    /// - `tba`: The TBA to get the namehash of.
-    /// # Returns
-    /// A `Result<String, EthError>` representing the namehash of the TBA.
-    pub fn get_namehash_from_tba(&self, tba: Address) -> Result<String, EthError> {
-        let token_call = tokenCall {}.abi_encode();
-
-        let tx_req = TransactionRequest::default()
-            .input(TransactionInput::new(token_call.into()))
-            .to(tba);
-
-        let res_bytes = self.provider.call(tx_req, None)?;
-
-        let res = tokenCall::abi_decode_returns(&res_bytes, false)
-            .map_err(|_| EthError::RpcMalformedResponse)?;
-
-        let namehash: FixedBytes<32> = res.tokenId.into();
-        Ok(format!("0x{}", hex::encode(namehash)))
+    /// Whether a user's lock is expired.
+    pub fn is_lock_expired(&self, account: Address) -> Result<bool, EthError> {
+        let res = self.call_view(contract::isLockExpiredCall { _account: account })?;
+        Ok(res._0)
     }
 
-    /// Create a filter for all mint events.
-    pub fn mint_filter(&self) -> crate::eth::Filter {
-        crate::eth::Filter::new()
-            .address(self.address)
-            .event(contract::Mint::SIGNATURE)
+    /// Get the lock details for a user.
+    pub fn get_lock_details(&self, user: Address) -> Result<LockDetails, EthError> {
+        let res = self.call_view(contract::getLockDetailsCall { _user: user })?;
+        Ok(LockDetails {
+            amount: res.amount,
+            end_time: res.endTime,
+            remaining_time: res.remainingTime,
+        })
     }
 
-    /// Create a filter for all note events.
-    pub fn note_filter(&self) -> crate::eth::Filter {
-        crate::eth::Filter::new()
-            .address(self.address)
-            .event(contract::Note::SIGNATURE)
+    /// Get registration details by an already hashed name.
+    pub fn get_registration_details_by_hash(
+        &self,
+        namehash: FixedBytes<32>,
+        user: Address,
+    ) -> Result<RegistrationDetails, EthError> {
+        let res = self.call_view(contract::getRegistrationDetailsCall {
+            _namehash: namehash,
+            _user: user,
+        })?;
+        Ok(RegistrationDetails {
+            amount: res.amount,
+            end_time: res.endTime,
+            remaining_time: res.remainingTime,
+        })
     }
 
-    /// Create a filter for all fact events.
-    pub fn fact_filter(&self) -> crate::eth::Filter {
-        crate::eth::Filter::new()
-            .address(self.address)
-            .event(contract::Fact::SIGNATURE)
+    /// Get registration details using a dotted Hypermap label.
+    pub fn get_registration_details(
+        &self,
+        name: &str,
+        user: Address,
+    ) -> Result<RegistrationDetails, EthError> {
+        self.get_registration_details_by_hash(namehash(name), user)
     }
 
-    /// Create a filter for a given set of specific notes. This function will
-    /// hash the note labels and use them as the topic3 filter.
-    ///
-    /// Example:
-    /// ```rust
-    /// let filter = hypermap.notes_filter(&["~note1", "~note2"]);
-    /// ```
-    pub fn notes_filter(&self, notes: &[&str]) -> crate::eth::Filter {
-        self.note_filter().topic3(
-            notes
-                .into_iter()
-                .map(|note| keccak256(note))
-                .collect::<Vec<_>>(),
+    /// Return all bind namehashes owned by a user.
+    pub fn get_user_binds(&self, user: Address) -> Result<Vec<FixedBytes<32>>, EthError> {
+        let res = self.call_view(contract::getUserBindsCall { _user: user })?;
+        Ok(res._0)
+    }
+
+    /// Calculate voting power for a balance/duration.
+    pub fn calculate_voting_power(
+        &self,
+        value: U256,
+        lock_duration: U256,
+    ) -> Result<U256, EthError> {
+        let res = self.call_view(contract::calculateVotingPowerCall {
+            _value: value,
+            _lockDuration: lock_duration,
+        })?;
+        Ok(res._0)
+    }
+
+    /// Retrieve the multiplier for an account (or supply if account == zero) at a timepoint.
+    pub fn get_multiplier(&self, account: Address, timepoint: U256) -> Result<U256, EthError> {
+        let res = self.call_view(contract::getMultiplierCall {
+            _account: account,
+            _timepoint: timepoint,
+        })?;
+        Ok(res._0)
+    }
+
+    pub fn get_user_unlock_stamp(&self, account: Address) -> Result<U256, EthError> {
+        let res = self.call_view(contract::getUserUnlockStampCall { _account: account })?;
+        Ok(res._0)
+    }
+
+    pub fn get_user_or_delegated_unlock_stamp(&self, account: Address) -> Result<U256, EthError> {
+        let res =
+            self.call_view(contract::getUserOrDelegatedUnlockStampCall { _account: account })?;
+        Ok(res._0)
+    }
+
+    pub fn calculate_weighted_unlock_stamp(
+        &self,
+        remaining_duration: U256,
+        current_balance: U256,
+        new_lock_duration: U256,
+        new_lock_amount: U256,
+    ) -> Result<U256, EthError> {
+        let res = self.call_view(contract::calculateWeightedUnlockStampCall {
+            _remainingDuration: remaining_duration,
+            _currentBalance: current_balance,
+            _newLockDuration: new_lock_duration,
+            _newLockAmount: new_lock_amount,
+        })?;
+        Ok(res._0)
+    }
+
+    pub fn calculate_new_lock_duration(
+        &self,
+        unlock_stamp: U256,
+        remaining_duration: U256,
+        current_balance: U256,
+        new_lock_amount: U256,
+    ) -> Result<U256, EthError> {
+        let res = self.call_view(contract::calculateNewLockDurationCall {
+            _unlockStamp: unlock_stamp,
+            _remainingDuration: remaining_duration,
+            _currentBalance: current_balance,
+            _newLockAmount: new_lock_amount,
+        })?;
+        Ok(res._0)
+    }
+
+    /// Returns the HYPR token address backing the registry.
+    pub fn get_hypr_address(&self) -> Result<Address, EthError> {
+        let res = self.call_view(contract::hyprCall {})?;
+        Ok(res._0)
+    }
+
+    /// Returns the HYPR ERC20 balance for a given account.
+    pub fn get_hypr_balance(&self, account: Address) -> Result<U256, EthError> {
+        let hypr_address = self.get_hypr_address()?;
+        let res = self.call_view_at(hypr_address, erc20::IERC20::balanceOfCall { account })?;
+        Ok(res._0)
+    }
+
+    /// Returns the HYPR ERC20 allowance granted to the TokenRegistry for an account.
+    pub fn get_hypr_allowance(&self, owner: Address) -> Result<U256, EthError> {
+        let hypr_address = self.get_hypr_address()?;
+        let res = self.call_view_at(
+            hypr_address,
+            erc20::IERC20::allowanceCall {
+                owner,
+                spender: self.address,
+            },
+        )?;
+        Ok(res._0)
+    }
+
+    /// Build a transaction for `initialize`.
+    pub fn build_initialize_tx(&self, hypr: Address, admin: Address) -> TransactionRequest {
+        self.build_tx(contract::initializeCall {
+            _hypr: hypr,
+            _admin: admin,
+        })
+    }
+
+    /// Build a transaction for `manageLock`.
+    pub fn build_manage_lock_tx(&self, amount: U256, duration: U256) -> TransactionRequest {
+        self.build_tx(contract::manageLockCall {
+            _amount: amount,
+            _duration: duration,
+        })
+    }
+
+    /// Build a transaction for `withdraw`.
+    pub fn build_withdraw_tx(&self) -> TransactionRequest {
+        self.build_tx(contract::withdrawCall {})
+    }
+
+    /// Build a transaction for `transferRegistration` with pre-hashed names.
+    pub fn build_transfer_registration_tx(
+        &self,
+        src_namehash: FixedBytes<32>,
+        dst_namehash: FixedBytes<32>,
+        max_amount: U256,
+        duration: U256,
+    ) -> TransactionRequest {
+        self.build_tx(contract::transferRegistrationCall {
+            _srcNamehash: src_namehash,
+            _dstNamehash: dst_namehash,
+            _maxAmount: max_amount,
+            _duration: duration,
+        })
+    }
+
+    /// Build a transaction for `transferRegistration` using dotted names.
+    pub fn build_transfer_registration_by_name_tx(
+        &self,
+        src_name: &str,
+        dst_name: &str,
+        max_amount: U256,
+        duration: U256,
+    ) -> TransactionRequest {
+        self.build_transfer_registration_tx(
+            namehash(src_name),
+            namehash(dst_name),
+            max_amount,
+            duration,
         )
     }
 
-    /// Create a filter for a given set of specific facts. This function will
-    /// hash the fact labels and use them as the topic3 filter.
-    ///
-    /// Example:
-    /// ```rust
-    /// let filter = hypermap.facts_filter(&["!fact1", "!fact2"]);
-    /// ```
-    pub fn facts_filter(&self, facts: &[&str]) -> crate::eth::Filter {
-        self.fact_filter().topic3(
-            facts
-                .into_iter()
-                .map(|fact| keccak256(fact))
+    /// Build a transaction for `updateDelegationMultipliers`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_update_delegation_multipliers_tx(
+        &self,
+        unlock_time: U256,
+        moved_votes: U256,
+        sender: Address,
+        sender_votes_before: U256,
+        dst: Address,
+        dst_votes_before: U256,
+    ) -> TransactionRequest {
+        self.build_tx(contract::updateDelegationMultipliersCall {
+            _unlockTime: unlock_time,
+            _movedVotes: moved_votes,
+            _sender: sender,
+            _senderVotesBefore: sender_votes_before,
+            _dst: dst,
+            _dstVotesBefore: dst_votes_before,
+        })
+    }
+
+    fn event_filter(signature: &str, address: Address) -> EthFilter {
+        EthFilter::new().address(address).event(signature)
+    }
+
+    /// Filter for `TokensLocked` events.
+    pub fn tokens_locked_filter(&self) -> EthFilter {
+        Self::event_filter(contract::TokensLocked::SIGNATURE, self.address)
+    }
+
+    /// Filter for `LockExtended` events.
+    pub fn lock_extended_filter(&self) -> EthFilter {
+        Self::event_filter(contract::LockExtended::SIGNATURE, self.address)
+    }
+
+    /// Filter for `TokensWithdrawn` events.
+    pub fn tokens_withdrawn_filter(&self) -> EthFilter {
+        Self::event_filter(contract::TokensWithdrawn::SIGNATURE, self.address)
+    }
+
+    /// Filter for `BindCreated` events.
+    pub fn bind_created_filter(&self) -> EthFilter {
+        Self::event_filter(contract::BindCreated::SIGNATURE, self.address)
+    }
+
+    /// Filter for `BindAmountIncreased` events.
+    pub fn bind_amount_increased_filter(&self) -> EthFilter {
+        Self::event_filter(contract::BindAmountIncreased::SIGNATURE, self.address)
+    }
+
+    /// Filter for `BindDurationExtended` events.
+    pub fn bind_duration_extended_filter(&self) -> EthFilter {
+        Self::event_filter(contract::BindDurationExtended::SIGNATURE, self.address)
+    }
+
+    /// Filter for `TokensBound` events.
+    pub fn tokens_bound_filter(&self) -> EthFilter {
+        Self::event_filter(contract::TokensBound::SIGNATURE, self.address)
+    }
+
+    /// Filter for `ExpiredBindReclaimed` events.
+    pub fn expired_bind_reclaimed_filter(&self) -> EthFilter {
+        Self::event_filter(contract::ExpiredBindReclaimed::SIGNATURE, self.address)
+    }
+
+    /// Filter for `GHyprSet` events.
+    pub fn ghypr_set_filter(&self) -> EthFilter {
+        Self::event_filter(contract::GHyprSet::SIGNATURE, self.address)
+    }
+
+    /// Filter for `Initialized` events.
+    pub fn initialized_filter(&self) -> EthFilter {
+        Self::event_filter(contract::Initialized::SIGNATURE, self.address)
+    }
+
+    /// Create a `BindCreated` filter scoped to specific namehashes.
+    pub fn named_bind_filter(&self, namehashes: &[FixedBytes<32>]) -> EthFilter {
+        self.bind_created_filter().topic2(
+            namehashes
+                .iter()
+                .map(|h| B256::from(*h))
                 .collect::<Vec<_>>(),
         )
     }
@@ -826,7 +880,7 @@ impl Hypermap {
     fn get_bootstrap_log_cache_inner(
         &self,
         cacher_request: &CacherRequest,
-        cacher_process_address: &HyperAddress,
+        cacher_process_address: &BindingAddress,
         attempt: u64,
         request_from_block_val: u64,
         retry_delay_s: u64,
@@ -838,7 +892,7 @@ impl Hypermap {
             .unwrap_or_else(|| "inf".to_string());
         print_to_terminal(
             2,
-            &format!("Attempt {attempt}/{retry_count_str} to query local hypermap-cacher"),
+            &format!("Attempt {attempt}/{retry_count_str} to query local binding-cacher"),
         );
 
         let response_msg = match Request::to(cacher_process_address.clone())
@@ -883,108 +937,98 @@ impl Hypermap {
         };
 
         match serde_json::from_slice::<CacherResponse>(response_msg.body())? {
-            CacherResponse::GetLogsByRange(res) => {
-                match res {
-                    Ok(GetLogsByRangeOkResponse::Latest(block)) => {
+            CacherResponse::GetLogsByRange(res) => match res {
+                Ok(GetLogsByRangeOkResponse::Latest(block)) => Ok(Some((block, vec![]))),
+                Ok(GetLogsByRangeOkResponse::Logs((block, json))) => {
+                    if json.is_empty() || json == "[]" {
+                        print_to_terminal(
+                            2,
+                            &format!(
+                                "Local cacher returned no log caches for the range from block {}.",
+                                request_from_block_val,
+                            ),
+                        );
                         return Ok(Some((block, vec![])));
                     }
-                    Ok(GetLogsByRangeOkResponse::Logs((block, json_string_of_vec_log_cache))) => {
-                        if json_string_of_vec_log_cache.is_empty()
-                            || json_string_of_vec_log_cache == "[]"
-                        {
-                            print_to_terminal(
-                                    2,
-                                    &format!(
-                                        "Local cacher returned no log caches for the range from block {}.",
-                                        request_from_block_val,
-                                    ),
-                                );
-                            return Ok(Some((block, vec![])));
-                        }
-                        match serde_json::from_str::<Vec<LogCache>>(&json_string_of_vec_log_cache) {
-                            Ok(retrieved_caches) => {
-                                let target_chain_id = chain
-                                    .clone()
-                                    .unwrap_or_else(|| self.provider.get_chain_id().to_string());
-                                let mut filtered_caches = vec![];
+                    match serde_json::from_str::<Vec<LogCache>>(&json) {
+                        Ok(retrieved_caches) => {
+                            let target_chain_id = chain
+                                .clone()
+                                .unwrap_or_else(|| self.provider.get_chain_id().to_string());
+                            let mut filtered_caches = vec![];
 
-                                for log_cache in retrieved_caches {
-                                    if log_cache.metadata.chain_id == target_chain_id {
-                                        // Further filter: ensure the cache's own from_block isn't completely after what we need,
-                                        // and to_block isn't completely before.
-                                        let cache_from = log_cache
-                                            .metadata
-                                            .from_block
-                                            .parse::<u64>()
-                                            .unwrap_or(u64::MAX);
-                                        let cache_to =
-                                            log_cache.metadata.to_block.parse::<u64>().unwrap_or(0);
-
-                                        if cache_to >= request_from_block_val {
-                                            // Cache has some data at or after our request_from_block
-                                            filtered_caches.push(log_cache);
-                                        } else {
-                                            print_to_terminal(3, &format!("Cache from local cacher ({} to {}) does not meet request_from_block {}",
-                                                    cache_from, cache_to, request_from_block_val));
-                                        }
+                            for log_cache in retrieved_caches {
+                                if log_cache.metadata.chain_id == target_chain_id {
+                                    let cache_to =
+                                        log_cache.metadata.to_block.parse::<u64>().unwrap_or(0);
+                                    if cache_to >= request_from_block_val {
+                                        filtered_caches.push(log_cache);
                                     } else {
-                                        print_to_terminal(1,&format!("LogCache from local cacher has mismatched chain_id (expected {}, got {}). Skipping.",
-                                                target_chain_id, log_cache.metadata.chain_id));
+                                        print_to_terminal(
+                                            3,
+                                            &format!(
+                                                "Cache from local cacher ({} to {}) does not meet request_from_block {}",
+                                                log_cache.metadata.from_block,
+                                                log_cache.metadata.to_block,
+                                                request_from_block_val
+                                            ),
+                                        );
                                     }
+                                } else {
+                                    print_to_terminal(
+                                        1,
+                                        &format!(
+                                            "LogCache from local cacher has mismatched chain_id (expected {}, got {}). Skipping.",
+                                            target_chain_id, log_cache.metadata.chain_id
+                                        ),
+                                    );
                                 }
+                            }
 
-                                print_to_terminal(
-                                    2,
-                                    &format!(
-                                        "Retrieved {} log caches from local hypermap-cacher.",
-                                        filtered_caches.len(),
-                                    ),
-                                );
-                                return Ok(Some((block, filtered_caches)));
-                            }
-                            Err(e) => {
-                                return Err(anyhow::anyhow!(
-                                        "Failed to deserialize Vec<LogCache> from local cacher: {:?}. JSON: {:.100}",
-                                        e, json_string_of_vec_log_cache
-                                    ));
-                            }
+                            print_to_terminal(
+                                2,
+                                &format!(
+                                    "Retrieved {} log caches from local binding-cacher.",
+                                    filtered_caches.len(),
+                                ),
+                            );
+                            Ok(Some((block, filtered_caches)))
                         }
-                    }
-                    Err(e_str) => {
-                        return Err(anyhow::anyhow!(
-                            "Local cacher reported error for GetLogsByRange: {}",
-                            e_str,
-                        ));
+                        Err(e) => Err(anyhow::anyhow!(
+                            "Failed to deserialize Vec<LogCache> from local cacher: {:?}. JSON: {:.100}",
+                            e,
+                            json
+                        )),
                     }
                 }
-            }
+                Err(e_str) => Err(anyhow::anyhow!(
+                    "Local cacher reported error for GetLogsByRange: {}",
+                    e_str,
+                )),
+            },
             CacherResponse::IsStarting => {
                 print_to_terminal(
-                        2,
-                        &format!(
-                            "Local hypermap-cacher is still starting (attempt {}/{}). Retrying in {}s...",
-                            attempt, retry_count_str, retry_delay_s
-                        ),
-                    );
+                    2,
+                    &format!(
+                        "Local binding-cacher is still starting (attempt {}/{}). Retrying in {}s...",
+                        attempt, retry_count_str, retry_delay_s
+                    ),
+                );
                 if retry_count.is_none() || attempt < retry_count.unwrap() {
                     std::thread::sleep(std::time::Duration::from_secs(retry_delay_s));
-                    return Ok(None);
+                    Ok(None)
                 } else {
-                    return Err(anyhow::anyhow!(
-                        "Local hypermap-cacher is still starting after {retry_count_str} attempts"
-                    ));
+                    Err(anyhow::anyhow!(
+                        "Local binding-cacher is still starting after {retry_count_str} attempts"
+                    ))
                 }
             }
             CacherResponse::Rejected => {
-                return Err(anyhow::anyhow!(
-                    "Local hypermap-cacher rejected our request"
-                ));
+                Err(anyhow::anyhow!("Local binding-cacher rejected our request"))
             }
-            _ => {
-                return Err(anyhow::anyhow!(
-                    "Unexpected response type from local hypermap-cacher"
-                ));
-            }
+            _ => Err(anyhow::anyhow!(
+                "Unexpected response type from local binding-cacher"
+            )),
         }
     }
 
@@ -994,9 +1038,12 @@ impl Hypermap {
         retry_params: Option<(u64, Option<u64>)>,
         chain: Option<String>,
     ) -> anyhow::Result<(u64, Vec<LogCache>)> {
-        print_to_terminal(2,
-            &format!("get_bootstrap_log_cache (using local hypermap-cacher): from_block={:?}, retry_params={:?}, chain={:?}",
-            from_block, retry_params, chain)
+        print_to_terminal(
+            2,
+            &format!(
+                "get_bootstrap_log_cache (using local binding-cacher): from_block={:?}, retry_params={:?}, chain={:?}",
+                from_block, retry_params, chain
+            ),
         );
 
         let (retry_delay_s, retry_count) = retry_params.ok_or_else(|| {
@@ -1004,7 +1051,7 @@ impl Hypermap {
         })?;
 
         let cacher_process_address =
-            HyperAddress::new("our", ("hypermap-cacher", "hypermap-cacher", "sys"));
+            BindingAddress::new("our", ("binding-cacher", "hypermap-cacher", "sys"));
 
         print_to_terminal(
             2,
@@ -1018,7 +1065,7 @@ impl Hypermap {
 
         let get_logs_by_range_payload = GetLogsByRangeRequest {
             from_block: request_from_block_val,
-            to_block: None, // Request all logs from from_block onwards. Cacher will return what it has.
+            to_block: None,
         };
         let cacher_request = CacherRequest::GetLogsByRange(get_logs_by_range_payload);
 
@@ -1055,7 +1102,7 @@ impl Hypermap {
         }
 
         Err(anyhow::anyhow!(
-            "Failed to get response from local hypermap-cacher after {retry_count:?} attempts"
+            "Failed to get response from local binding-cacher after {retry_count:?} attempts"
         ))
     }
 
@@ -1084,9 +1131,9 @@ impl Hypermap {
         let signature_bytes = hex::decode(signature_hex)
             .map_err(|e| anyhow::anyhow!("Failed to decode hex signature: {:?}", e))?;
 
-        Ok(sign::net_key_verify(
+        Ok(crate::sign::net_key_verify(
             hashed_data.to_vec(),
-            &log_cache.metadata.created_by.parse::<HyperAddress>()?,
+            &log_cache.metadata.created_by.parse::<BindingAddress>()?,
             signature_bytes,
         )?)
     }
@@ -1116,15 +1163,14 @@ impl Hypermap {
         let signature_bytes = hex::decode(signature_hex)
             .map_err(|e| anyhow::anyhow!("Failed to decode hex signature: {:?}", e))?;
 
-        Ok(sign::net_key_verify(
+        Ok(crate::sign::net_key_verify(
             hashed_data.to_vec(),
-            &log_cache.metadata.created_by.parse::<HyperAddress>()?,
+            &log_cache.metadata.created_by.parse::<BindingAddress>()?,
             signature_bytes,
         )
         .await?)
     }
 
-    #[cfg(not(feature = "hyperapp"))]
     pub fn get_bootstrap(
         &self,
         from_block: Option<u64>,
@@ -1144,125 +1190,15 @@ impl Hypermap {
         let request_from_block_val = from_block.unwrap_or(0);
 
         for log_cache in log_caches {
-            // VALIDATION TEMPORARILY SKIPPED - For external reasons, validation is disabled
-            // and all logs are processed as if validation succeeded (Ok(true) case)
-
-            // match self.validate_log_cache(&log_cache) {
-            //     Ok(true) => {
             for log in log_cache.logs {
                 if let Some(log_block_number) = log.block_number {
                     if log_block_number >= request_from_block_val {
                         all_valid_logs.push(log);
                     }
-                } else {
-                    if from_block.is_none() {
-                        all_valid_logs.push(log);
-                    }
+                } else if from_block.is_none() {
+                    all_valid_logs.push(log);
                 }
             }
-            //     }
-            //     Ok(false) => {
-            //         print_to_terminal(
-            //             1,
-            //             &format!("LogCache validation failed for cache created by {}. Discarding {} logs.",
-            //             log_cache.metadata.created_by,
-            //             log_cache.logs.len())
-            //         );
-            //     }
-            //     Err(e) => {
-            //         print_to_terminal(
-            //             1,
-            //             &format!(
-            //                 "Error validating LogCache from {}: {:?}. Discarding.",
-            //                 log_cache.metadata.created_by, e,
-            //             ),
-            //         );
-            //     }
-            // }
-        }
-        all_valid_logs.sort_by(|a, b| {
-            let block_cmp = a.block_number.cmp(&b.block_number);
-            if block_cmp == std::cmp::Ordering::Equal {
-                std::cmp::Ordering::Equal
-            } else {
-                block_cmp
-            }
-        });
-
-        let mut unique_logs = Vec::new();
-        for log in all_valid_logs {
-            if !unique_logs.contains(&log) {
-                unique_logs.push(log);
-            }
-        }
-
-        print_to_terminal(
-            2,
-            &format!(
-                "get_bootstrap: Consolidated {} unique logs.",
-                unique_logs.len(),
-            ),
-        );
-        Ok((block, unique_logs))
-    }
-
-    #[cfg(feature = "hyperapp")]
-    pub async fn get_bootstrap(
-        &self,
-        from_block: Option<u64>,
-        retry_params: Option<(u64, Option<u64>)>,
-        chain: Option<String>,
-    ) -> anyhow::Result<(u64, Vec<EthLog>)> {
-        print_to_terminal(
-            2,
-            &format!(
-                "get_bootstrap: from_block={:?}, retry_params={:?}, chain={:?}",
-                from_block, retry_params, chain,
-            ),
-        );
-        let (block, log_caches) = self.get_bootstrap_log_cache(from_block, retry_params, chain)?;
-
-        let mut all_valid_logs: Vec<EthLog> = Vec::new();
-        let request_from_block_val = from_block.unwrap_or(0);
-
-        for log_cache in log_caches {
-            // VALIDATION TEMPORARILY SKIPPED - For external reasons, validation is disabled
-            // and all logs are processed as if validation succeeded (Ok(true) case)
-
-            //match self.validate_log_cache(&log_cache).await {
-            //Ok(true) => {
-            for log in log_cache.logs {
-                if let Some(log_block_number) = log.block_number {
-                    if log_block_number >= request_from_block_val {
-                        all_valid_logs.push(log);
-                    }
-                } else {
-                    if from_block.is_none() {
-                        all_valid_logs.push(log);
-                    }
-                }
-            }
-            //}
-            //Ok(false) => {
-            //    print_to_terminal(
-            //        1,
-            //        &format!("LogCache validation failed for cache created by {}. Discarding {} logs.",
-            //        log_cache.metadata.created_by,
-            //        log_cache.logs.len())
-            //    );
-            //}
-            //Err(e) => {
-            //    print_to_terminal(
-            //        1,
-            //        &format!(
-            //            "Error validating LogCache from {}: {:?}. Discarding {} logs.",
-            //            log_cache.metadata.created_by,
-            //            e,
-            //            log_cache.logs.len()
-            //        ),
-            //    );
-            //}
-            //}
         }
 
         all_valid_logs.sort_by(|a, b| {
@@ -1291,7 +1227,6 @@ impl Hypermap {
         Ok((block, unique_logs))
     }
 
-    #[cfg(not(feature = "hyperapp"))]
     pub fn bootstrap(
         &self,
         from_block: Option<u64>,
@@ -1313,46 +1248,10 @@ impl Hypermap {
         let (block, consolidated_logs) = self.get_bootstrap(from_block, retry_params, chain)?;
 
         if consolidated_logs.is_empty() {
-            print_to_terminal(2,"bootstrap: No logs retrieved after consolidation. Returning empty results for filters.");
-            return Ok((block, filters.iter().map(|_| Vec::new()).collect()));
-        }
-
-        let mut results_per_filter: Vec<Vec<EthLog>> = Vec::new();
-        for filter in filters {
-            let filtered_logs = eth_apply_filter(&consolidated_logs, &filter);
-            results_per_filter.push(filtered_logs);
-        }
-
-        print_to_terminal(
-            2,
-            &format!(
-                "bootstrap: Applied {} filters to bootstrapped logs.",
-                results_per_filter.len(),
-            ),
-        );
-        Ok((block, results_per_filter))
-    }
-
-    #[cfg(feature = "hyperapp")]
-    pub async fn bootstrap(
-        &self,
-        from_block: Option<u64>,
-        filters: Vec<EthFilter>,
-        retry_params: Option<(u64, Option<u64>)>,
-        chain: Option<String>,
-    ) -> anyhow::Result<(u64, Vec<Vec<EthLog>>)> {
-        print_to_terminal(
-            2,
-            &format!(
-                "bootstrap: from_block={:?}, filters={:?}, retry_params={:?}, chain={:?}",
-                from_block, filters, retry_params, chain,
-            ),
-        );
-        let (block, consolidated_logs) =
-            self.get_bootstrap(from_block, retry_params, chain).await?;
-
-        if consolidated_logs.is_empty() {
-            print_to_terminal(2,"bootstrap: No logs retrieved after consolidation. Returning empty results for filters.");
+            print_to_terminal(
+                2,
+                "bootstrap: No logs retrieved after consolidation. Returning empty results for filters.",
+            );
             return Ok((block, filters.iter().map(|_| Vec::new()).collect()));
         }
 
@@ -1372,6 +1271,54 @@ impl Hypermap {
         Ok((block, results_per_filter))
     }
 }
+
+/// Preview the combined lock amount and weighted duration when additional HYPR is added to a lock.
+///
+/// This uses the same weighted-average technique as the TokenRegistry: the resulting duration is
+/// the sum of each lock's `amount * duration`, divided by the combined amount. If the total amount
+/// is zero, the combined duration is also zero.
+pub fn preview_combined_lock(
+    existing_amount: U256,
+    existing_duration: U256,
+    additional_amount: U256,
+    additional_duration: U256,
+) -> (U256, U256) {
+    let total_amount = existing_amount + additional_amount;
+    if total_amount.is_zero() {
+        return (U256::ZERO, U256::ZERO);
+    }
+
+    let existing_weighted = existing_amount.saturating_mul(existing_duration);
+    let additional_weighted = additional_amount.saturating_mul(additional_duration);
+    let combined_duration = (existing_weighted + additional_weighted) / total_amount;
+
+    (total_amount, combined_duration)
+}
+
+/// Given a desired weighted duration, compute the required additional lock duration.
+///
+/// This inverts the weighted-average equation used by the TokenRegistry so callers can
+/// determine which duration to supply to `manageLock` in order to reach a target lock end.
+/// Returns `None` if the additional amount is zero or if the math underflows.
+pub fn required_additional_duration(
+    existing_amount: U256,
+    existing_duration: U256,
+    additional_amount: U256,
+    desired_weighted_duration: U256,
+) -> Option<U256> {
+    if additional_amount.is_zero() {
+        return None;
+    }
+    let total_amount = existing_amount + additional_amount;
+    let desired_total_weighted = desired_weighted_duration.saturating_mul(total_amount);
+    if desired_total_weighted < existing_amount.saturating_mul(existing_duration) {
+        return None;
+    }
+    let numerator = desired_total_weighted - existing_amount.saturating_mul(existing_duration);
+    Some(numerator / additional_amount)
+}
+
+// ... existing code ...
 
 impl Serialize for ManifestItem {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

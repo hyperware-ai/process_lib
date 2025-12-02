@@ -30,6 +30,11 @@ wit_bindgen::generate!({
     generate_unused_types: true,
 });
 
+/// Interact with the tokenregistry contract data
+pub mod bindings;
+/// Interact with DAO (Timelock / Governor) contracts
+pub mod dao;
+
 /// Interact with the eth provider module.
 pub mod eth;
 /// Your process must have the [`Capability`] to message
@@ -94,6 +99,7 @@ pub mod hyperapp;
 pub mod hyperwallet_client;
 
 mod types;
+
 pub use types::{
     address::{Address, AddressParseError},
     capability::Capability,
