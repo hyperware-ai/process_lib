@@ -135,24 +135,39 @@ pub mod contract {
 
         event GHyprSet(address indexed gHypr);
 
+        /// Initializes the TokenRegistry with HYPR token and admin.
+        /// Reverts InvalidAdmin if admin is zero; UnsupportedToken if hypr is zero.
         function initialize(address _hypr, address _admin) external;
 
+        /// Locks tokens or modifies an existing lock.
+        /// Emits TokensLocked/LockExtended. Reverts on zero amount, expired lock,
+        /// invalid amount, or invalid duration.
         function manageLock(uint256 _amount, uint256 _duration) external;
 
+        /// Returns true if the user's lock has expired.
         function isLockExpired(address _account) external view returns (bool);
 
+        /// Withdraws unlocked tokens, consolidating bindings first.
+        /// Emits TokensBound/TokensWithdrawn. May require multiple calls if many bindings.
         function withdraw() external returns (bool);
 
+        /// Retrieves lock details for a user.
         function getLockDetails(address _user)
             external
             view
             returns (uint256 amount, uint256 endTime, uint256 remainingTime);
 
+        /// Retrieves registration details for a user/namehash.
         function getRegistrationDetails(bytes32 _namehash, address _user)
             external
             view
             returns (uint256 amount, uint256 endTime, uint256 remainingTime);
 
+        /// Transfers tokens between registrations for the caller.
+        /// Source must be expired or default. Emits TokensBound/BindCreated/
+        /// BindAmountIncreased/BindDurationExtended. Reverts on invalid duration,
+        /// invalid params for default dest, expired lock, unexpired source, or zero
+        /// amount/duration for new binds.
         function transferRegistration(
             bytes32 _srcNamehash,
             bytes32 _dstNamehash,
@@ -160,22 +175,29 @@ pub mod contract {
             uint256 _duration
         ) external;
 
+        /// Returns all binding namehashes for a user.
         function getUserBinds(address _user) external view returns (bytes32[] memory);
 
+        /// Calculates sublinear voting power for a balance/duration.
         function calculateVotingPower(uint256 _value, uint256 _lockDuration)
             external
             view
             returns (uint256);
 
+        /// Gets the multiplier for an account (or total supply if zero) at a timepoint.
         function getMultiplier(address _account, uint256 _timepoint)
             external
             view
             returns (uint256);
 
+        /// Gets the user's unlock timestamp.
         function getUserUnlockStamp(address _account) external view returns (uint256);
 
+        /// Gets user's unlock or delegated unlock timestamp, whichever is later.
         function getUserOrDelegatedUnlockStamp(address _account) external view returns (uint256);
 
+        /// Updates voting multipliers when delegation changes.
+        /// Only callable by governance token; reverts otherwise.
         function updateDelegationMultipliers(
             uint256 _unlockTime,
             uint256 _movedVotes,
@@ -185,6 +207,7 @@ pub mod contract {
             uint256 _dstVotesBefore
         ) external;
 
+        /// Calculates weighted unlock timestamp for locks.
         function calculateWeightedUnlockStamp(
             uint256 _remainingDuration,
             uint256 _currentBalance,
@@ -192,6 +215,8 @@ pub mod contract {
             uint256 _newLockAmount
         ) external view returns (uint256);
 
+        /// Calculates required new lock duration to hit a desired unlock stamp.
+        /// Reverts InvalidParam if unlockStamp is in the past or newLockAmount is zero.
         function calculateNewLockDuration(
             uint256 _unlockStamp,
             uint256 _remainingDuration,
