@@ -383,6 +383,7 @@ pub enum WaitClassification {
 /// - `retry_delay_s`: delay between attempts when not ready or on error.
 /// - `classify`: function to classify the response body.
 /// - `treat_unknown_as_ready`: if true, any non-starting response is treated as ready.
+/// - `max_attempts`: number of attempts before continuing without a ready response.
 pub fn wait_for_process_ready<F>(
     target: Address,
     request_body: Vec<u8>,
@@ -390,11 +391,19 @@ pub fn wait_for_process_ready<F>(
     retry_delay_s: u64,
     mut classify: F,
     treat_unknown_as_ready: bool,
+    max_attempts: Option<u32>,
 ) where
     F: FnMut(&[u8]) -> WaitClassification,
 {
     let mut attempt = 1;
     loop {
+        let mut fail_message_suffix = format!(", retrying in {retry_delay_s}s");
+        if let Some(ma) = max_attempts {
+            if attempt >= ma {
+                fail_message_suffix = ", abandoning waiting and proceeding as if ready".to_string()
+            }
+        }
+
         match Request::to(target.clone())
             .body(request_body.clone())
             .send_and_await_response(timeout_s)
@@ -403,41 +412,59 @@ pub fn wait_for_process_ready<F>(
                 let classification = classify(response.body());
                 match classification {
                     WaitClassification::Starting => {
-                        info!(
-                            "Target {} still starting (attempt {}), retrying in {}s",
-                            target, attempt, retry_delay_s
+                        crate::print_to_terminal(
+                            2,
+                            &format!(
+                                "Target {} still starting (attempt {}){}",
+                                target, attempt, fail_message_suffix
+                            ),
                         );
                     }
                     WaitClassification::Ready => {
-                        info!("Target {} ready after {} attempt(s)", target, attempt);
+                        crate::print_to_terminal(
+                            2,
+                            &format!("Target {} ready after {} attempt(s)", target, attempt),
+                        );
                         break;
                     }
                     WaitClassification::Unknown => {
                         if treat_unknown_as_ready {
-                            info!(
-                                "Target {} responded with unknown payload, proceeding as ready",
-                                target
+                            crate::print_to_terminal(
+                                2,
+                                &format!(
+                                    "Target {} responded with unknown payload, proceeding as ready",
+                                    target
+                                ),
                             );
                             break;
                         } else {
-                            info!(
-                                "Target {} responded with unknown payload, retrying in {}s",
-                                target, retry_delay_s
+                            crate::print_to_terminal(
+                                2,
+                                &format!(
+                                    "Target {} responded with unknown payload{}",
+                                    target, fail_message_suffix
+                                ),
                             );
                         }
                     }
                 }
             }
             Ok(Err(e)) => {
-                info!(
-                    "Error response from {} (attempt {}): {:?}, retrying in {}s",
-                    target, attempt, e, retry_delay_s
+                crate::print_to_terminal(
+                    2,
+                    &format!(
+                        "Error response from {} (attempt {}): {:?}{}",
+                        target, attempt, e, fail_message_suffix
+                    ),
                 );
             }
             Err(e) => {
-                info!(
-                    "Failed to contact {} (attempt {}): {:?}, retrying in {}s",
-                    target, attempt, e, retry_delay_s
+                crate::print_to_terminal(
+                    2,
+                    &format!(
+                        "Failed to contact {} (attempt {}): {:?}{}",
+                        target, attempt, e, fail_message_suffix
+                    ),
                 );
             }
         }
