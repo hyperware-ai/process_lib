@@ -364,6 +364,115 @@ pub fn eval_our(address: &Address) -> Address {
     address
 }
 
+/// Classification for readiness polling of another process.
+#[derive(Debug, PartialEq, Eq)]
+pub enum WaitClassification {
+    /// The target responded but indicated it is still starting up.
+    Starting,
+    /// The target is ready (or responded with a payload we consider ready).
+    Ready,
+    /// The target responded with an unknown payload.
+    Unknown,
+}
+
+/// Poll a target process until it reports ready while blocking.
+///
+/// - `target`: process address to poll (e.g., hypermap-cacher).
+/// - `request_body`: request payload to send each attempt.
+/// - `timeout_s`: per-request timeout in seconds.
+/// - `retry_delay_s`: delay between attempts when not ready or on error.
+/// - `classify`: function to classify the response body.
+/// - `treat_unknown_as_ready`: if true, any non-starting response is treated as ready.
+/// - `max_attempts`: number of attempts before continuing without a ready response.
+pub fn wait_for_process_ready<F>(
+    target: Address,
+    request_body: Vec<u8>,
+    timeout_s: u64,
+    retry_delay_s: u64,
+    mut classify: F,
+    treat_unknown_as_ready: bool,
+    max_attempts: Option<u32>,
+) where
+    F: FnMut(&[u8]) -> WaitClassification,
+{
+    let mut attempt = 1;
+    loop {
+        let mut fail_message_suffix = format!(", retrying in {retry_delay_s}s");
+        if let Some(ma) = max_attempts {
+            if attempt >= ma {
+                fail_message_suffix = ", abandoning waiting and proceeding as if ready".to_string()
+            }
+        }
+
+        match Request::to(target.clone())
+            .body(request_body.clone())
+            .send_and_await_response(timeout_s)
+        {
+            Ok(Ok(response)) => {
+                let classification = classify(response.body());
+                match classification {
+                    WaitClassification::Starting => {
+                        crate::print_to_terminal(
+                            2,
+                            &format!(
+                                "Target {} still starting (attempt {}){}",
+                                target, attempt, fail_message_suffix
+                            ),
+                        );
+                    }
+                    WaitClassification::Ready => {
+                        crate::print_to_terminal(
+                            2,
+                            &format!("Target {} ready after {} attempt(s)", target, attempt),
+                        );
+                        break;
+                    }
+                    WaitClassification::Unknown => {
+                        if treat_unknown_as_ready {
+                            crate::print_to_terminal(
+                                2,
+                                &format!(
+                                    "Target {} responded with unknown payload, proceeding as ready",
+                                    target
+                                ),
+                            );
+                            break;
+                        } else {
+                            crate::print_to_terminal(
+                                2,
+                                &format!(
+                                    "Target {} responded with unknown payload{}",
+                                    target, fail_message_suffix
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+            Ok(Err(e)) => {
+                crate::print_to_terminal(
+                    2,
+                    &format!(
+                        "Error response from {} (attempt {}): {:?}{}",
+                        target, attempt, e, fail_message_suffix
+                    ),
+                );
+            }
+            Err(e) => {
+                crate::print_to_terminal(
+                    2,
+                    &format!(
+                        "Failed to contact {} (attempt {}): {:?}{}",
+                        target, attempt, e, fail_message_suffix
+                    ),
+                );
+            }
+        }
+        attempt += 1;
+        std::thread::sleep(std::time::Duration::from_secs(retry_delay_s));
+    }
+}
+
 /// The `Spawn!()` macro is defined here as a no-op.
 /// However, in practice, `kit build` will rewrite it during pre-processing.
 ///
