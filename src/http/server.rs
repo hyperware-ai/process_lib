@@ -22,6 +22,9 @@ pub enum HttpServerRequest {
         channel_id: u32,
         #[serde(default)]
         source_socket_addr: Option<String>,
+        /// IP address from proxy headers (X-Forwarded-For, X-Real-IP, Cf-Connecting-Ip)
+        #[serde(default)]
+        forwarded_for: Option<String>,
     },
     /// Processes can both SEND and RECEIVE this kind of [`crate::Request`]
     /// (send as [`HttpServerAction::WebSocketPush`]).
@@ -993,13 +996,16 @@ impl HttpServer {
         path: &str,
         channel_id: u32,
         source_socket_addr: Option<String>,
+        forwarded_for: Option<String>,
     ) {
         self.ws_channels
             .entry(path.to_string())
             .or_insert(HashSet::new())
             .insert(channel_id);
-        if let Some(addr) = source_socket_addr {
-            self.ws_channel_addrs.insert(channel_id, addr);
+        // Store the client IP, preferring forwarded_for (from proxy headers) over socket addr
+        let client_ip = forwarded_for.or(source_socket_addr);
+        if let Some(ip) = client_ip {
+            self.ws_channel_addrs.insert(channel_id, ip);
         }
     }
 
@@ -1047,8 +1053,9 @@ impl HttpServer {
                 path,
                 channel_id,
                 source_socket_addr,
+                forwarded_for,
             } => {
-                self.handle_websocket_open(&path, channel_id, source_socket_addr);
+                self.handle_websocket_open(&path, channel_id, source_socket_addr, forwarded_for);
             }
             HttpServerRequest::WebSocketClose(channel_id) => {
                 self.handle_websocket_close(channel_id);
