@@ -1,6 +1,7 @@
 world process-lib {
     import sign;
     import hypermap-cacher;
+    import binding-cacher;
     import hyperwallet;
     include lib;
 }
