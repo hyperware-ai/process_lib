@@ -1,10 +1,10 @@
 use crate::eth::{BlockNumberOrTag, EthError, Filter as EthFilter, Log as EthLog, Provider};
 use crate::hyperware::process::dao_cacher::{
-    DaoCacherRequest, DaoCacherResponse, DaoCacherStatus, DaoGetLogsByRangeOkResponse, DaoGetLogsByRangeRequest,
-    DaoLogsMetadata, DaoManifest, DaoManifestItem,
+    DaoCacherRequest, DaoCacherResponse, DaoCacherStatus, DaoGetLogsByRangeOkResponse,
+    DaoGetLogsByRangeRequest, DaoLogsMetadata, DaoManifest, DaoManifestItem,
 };
-use crate::{print_to_terminal, Address as HyperAddress, Request};
 use crate::sign;
+use crate::{print_to_terminal, Address as HyperAddress, Request};
 use alloy::hex;
 use alloy::rpc::types::request::{TransactionInput, TransactionRequest};
 use alloy_primitives::{keccak256, Address, Bytes, FixedBytes, B256, U256};
@@ -141,7 +141,12 @@ pub struct DaoContracts {
 }
 
 impl DaoContracts {
-    pub fn new(provider: Provider, timelock: Address, governor: Address, votes_token: Address) -> Self {
+    pub fn new(
+        provider: Provider,
+        timelock: Address,
+        governor: Address,
+        votes_token: Address,
+    ) -> Self {
         Self {
             provider,
             timelock,
@@ -359,7 +364,10 @@ impl DaoContracts {
     pub fn past_votes(&self, voter: Address, block_number: U256) -> Result<U256, EthError> {
         let res = self.call_view(
             self.votes_token,
-            IVotes::getPastVotesCall { account: voter, blockNumber: block_number },
+            IVotes::getPastVotesCall {
+                account: voter,
+                blockNumber: block_number,
+            },
         )?;
         Ok(res._0)
     }
@@ -434,7 +442,9 @@ impl DaoContracts {
 
     /// Fetch the timestamp for a block number.
     pub fn block_timestamp(&self, block_number: u64) -> Result<u64, EthError> {
-        let block = self.provider.get_block_by_number(BlockNumberOrTag::Number(block_number), false)?;
+        let block = self
+            .provider
+            .get_block_by_number(BlockNumberOrTag::Number(block_number), false)?;
         let Some(b) = block else {
             return Err(EthError::RpcMalformedResponse);
         };
@@ -443,10 +453,7 @@ impl DaoContracts {
 
     /// Compute quorum progress (basis points) for a proposal: (for+abstain) / quorum * 10_000.
     /// Returns a tuple of (basis_points, votes_counted, quorum_required) to avoid precision loss.
-    pub fn quorum_progress_bps(
-        &self,
-        proposal_id: U256,
-    ) -> Result<(u128, U256, U256), String> {
+    pub fn quorum_progress_bps(&self, proposal_id: U256) -> Result<(u128, U256, U256), String> {
         // Grab snapshot; if unavailable (e.g., pending and governor reverts, or RPC missing), fall back to latest-1.
         let snapshot = match self.proposal_snapshot(proposal_id) {
             Ok(s) => s,
@@ -455,16 +462,13 @@ impl DaoContracts {
                     "has_power_at_snapshot: snapshot lookup failed for proposal {}, chain {}",
                     proposal_id, self.provider.chain_id
                 );
-                let latest_block = self
-                    .provider
-                    .get_block_number()
-                    .map_err(|e| {
-                        println!(
-                            "has_power_at_snapshot: block number error for chain {}: {:?}",
-                            self.provider.chain_id, e
-                        );
-                        format!("block number error: {e:?}")
-                    })?;
+                let latest_block = self.provider.get_block_number().map_err(|e| {
+                    println!(
+                        "has_power_at_snapshot: block number error for chain {}: {:?}",
+                        self.provider.chain_id, e
+                    );
+                    format!("block number error: {e:?}")
+                })?;
                 if latest_block > 0 {
                     U256::from(latest_block.saturating_sub(1))
                 } else {
@@ -535,16 +539,13 @@ impl DaoContracts {
                     "has_power_at_snapshot: past_votes failed at snapshot {} for voter {}, chain {}; trying fallback",
                     snapshot, voter, self.provider.chain_id
                 );
-                let latest_block = self
-                    .provider
-                    .get_block_number()
-                    .map_err(|e| {
-                        println!(
-                            "has_power_at_snapshot: block number error (fallback) for chain {}: {:?}",
-                            self.provider.chain_id, e
-                        );
-                        format!("block number error: {e:?}")
-                    })?;
+                let latest_block = self.provider.get_block_number().map_err(|e| {
+                    println!(
+                        "has_power_at_snapshot: block number error (fallback) for chain {}: {:?}",
+                        self.provider.chain_id, e
+                    );
+                    format!("block number error: {e:?}")
+                })?;
                 let fallback_block = if latest_block > 0 {
                     U256::from(latest_block.saturating_sub(1))
                 } else {
@@ -738,7 +739,8 @@ impl<'de> Deserialize<'de> for DaoCacherRequest {
                     .ok_or_else(|| de::Error::custom("expected a map entry"))?;
                 match entry.0.as_str() {
                     "GetLogCacheContent" => {
-                        let path: String = serde_json::from_value(entry.1).map_err(de::Error::custom)?;
+                        let path: String =
+                            serde_json::from_value(entry.1).map_err(de::Error::custom)?;
                         Ok(DaoCacherRequest::GetLogCacheContent(path))
                     }
                     "GetLogsByRange" => {
@@ -834,9 +836,13 @@ impl<'de> Deserialize<'de> for DaoGetLogsByRangeRequest {
                     }
                 }
 
-                let from_block = from_block.ok_or_else(|| de::Error::missing_field("from_block"))?;
+                let from_block =
+                    from_block.ok_or_else(|| de::Error::missing_field("from_block"))?;
 
-                Ok(DaoGetLogsByRangeRequest { from_block, to_block })
+                Ok(DaoGetLogsByRangeRequest {
+                    from_block,
+                    to_block,
+                })
             }
         }
 
@@ -1131,11 +1137,12 @@ impl<'de> Deserialize<'de> for DaoCacherStatus {
                 let chain_id = chain_id.ok_or_else(|| de::Error::missing_field("chain_id"))?;
                 let protocol_version =
                     protocol_version.ok_or_else(|| de::Error::missing_field("protocol_version"))?;
-                let manifest_filename =
-                    manifest_filename.ok_or_else(|| de::Error::missing_field("manifest_filename"))?;
+                let manifest_filename = manifest_filename
+                    .ok_or_else(|| de::Error::missing_field("manifest_filename"))?;
                 let log_files_count =
                     log_files_count.ok_or_else(|| de::Error::missing_field("log_files_count"))?;
-                let our_address = our_address.ok_or_else(|| de::Error::missing_field("our_address"))?;
+                let our_address =
+                    our_address.ok_or_else(|| de::Error::missing_field("our_address"))?;
                 let is_providing =
                     is_providing.ok_or_else(|| de::Error::missing_field("is_providing"))?;
 
@@ -1700,8 +1707,12 @@ impl DaoContracts {
                     ))
                 }
             }
-            DaoCacherResponse::Rejected => Err(anyhow::anyhow!("Local dao-cacher rejected our request")),
-            _ => Err(anyhow::anyhow!("Unexpected response type from local dao-cacher")),
+            DaoCacherResponse::Rejected => {
+                Err(anyhow::anyhow!("Local dao-cacher rejected our request"))
+            }
+            _ => Err(anyhow::anyhow!(
+                "Unexpected response type from local dao-cacher"
+            )),
         }
     }
 
@@ -1788,7 +1799,10 @@ impl DaoContracts {
             )
         })?;
         let to_block = log_cache.metadata.to_block.parse::<u64>().map_err(|_| {
-            anyhow::anyhow!("Invalid to_block in metadata: {}", log_cache.metadata.to_block)
+            anyhow::anyhow!(
+                "Invalid to_block in metadata: {}",
+                log_cache.metadata.to_block
+            )
         })?;
 
         let mut bytes_to_verify = serde_json::to_vec(&log_cache.logs)
@@ -1817,7 +1831,10 @@ impl DaoContracts {
             )
         })?;
         let to_block = log_cache.metadata.to_block.parse::<u64>().map_err(|_| {
-            anyhow::anyhow!("Invalid to_block in metadata: {}", log_cache.metadata.to_block)
+            anyhow::anyhow!(
+                "Invalid to_block in metadata: {}",
+                log_cache.metadata.to_block
+            )
         })?;
 
         let mut bytes_to_verify = serde_json::to_vec(&log_cache.logs)
