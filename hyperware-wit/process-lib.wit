@@ -2,6 +2,7 @@ world process-lib {
     import sign;
     import hypermap-cacher;
     import binding-cacher;
+    import dao-cacher;
     import hyperwallet;
     include lib;
 }
