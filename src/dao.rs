@@ -16,17 +16,26 @@ use serde::{
     ser::{SerializeMap, SerializeStruct},
     Deserialize, Deserializer, Serialize, Serializer,
 };
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 #[cfg(not(feature = "simulation-mode"))]
 pub const DAO_CHAIN_ID: u64 = 8453; // Base
 #[cfg(feature = "simulation-mode")]
 pub const DAO_CHAIN_ID: u64 = 31337; // Anvil / fakenet
+#[cfg(not(feature = "simulation-mode"))]
+pub const DAO_TIMELOCK_ADDRESS: &str = "0x322D23640D57f36aE058FCc43e02C2A307678166";
+#[cfg(feature = "simulation-mode")]
+pub const DAO_TIMELOCK_ADDRESS: &str = "0xb7Dcc6Ce8efFD80Fc26f0FD1A5C226C3c53f6D8F";
 
 #[cfg(not(feature = "simulation-mode"))]
 pub const DAO_GOVERNOR_ADDRESS: &str = "0x45d8B75bb9A961E88486C470bcf8aa13E506Ec9B";
 #[cfg(feature = "simulation-mode")]
 pub const DAO_GOVERNOR_ADDRESS: &str = "0x45d8B75bb9A961E88486C470bcf8aa13E506Ec9B";
+
+#[cfg(not(feature = "simulation-mode"))]
+pub const DAO_VOTES_TOKEN_ADDRESS: &str = "0xec48905Bb1714bbf3B6f56E49a8FA2299Bfa55f5";
+#[cfg(feature = "simulation-mode")]
+pub const DAO_VOTES_TOKEN_ADDRESS: &str = "0xec48905Bb1714bbf3B6f56E49a8FA2299Bfa55f5";
 
 // First block to start caching DAO events from (can be refined later)
 #[cfg(not(feature = "simulation-mode"))]
@@ -143,10 +152,16 @@ pub struct DaoContracts {
 impl DaoContracts {
     pub fn new(
         provider: Provider,
-        timelock: Address,
-        governor: Address,
-        votes_token: Address,
+        _timelock: Address,
+        _governor: Address,
+        _votes_token: Address,
     ) -> Self {
+        let timelock =
+            Address::from_str(DAO_TIMELOCK_ADDRESS).expect("invalid DAO_TIMELOCK_ADDRESS constant");
+        let governor =
+            Address::from_str(DAO_GOVERNOR_ADDRESS).expect("invalid DAO_GOVERNOR_ADDRESS constant");
+        let votes_token = Address::from_str(DAO_VOTES_TOKEN_ADDRESS)
+            .expect("invalid DAO_VOTES_TOKEN_ADDRESS constant");
         Self {
             provider,
             timelock,
