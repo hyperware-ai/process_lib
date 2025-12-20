@@ -150,12 +150,7 @@ pub struct DaoContracts {
 }
 
 impl DaoContracts {
-    pub fn new(
-        provider: Provider,
-        _timelock: Address,
-        _governor: Address,
-        _votes_token: Address,
-    ) -> Self {
+    pub fn new(provider: Provider) -> Self {
         let timelock =
             Address::from_str(DAO_TIMELOCK_ADDRESS).expect("invalid DAO_TIMELOCK_ADDRESS constant");
         let governor =
