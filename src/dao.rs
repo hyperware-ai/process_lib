@@ -23,23 +23,23 @@ pub const DAO_CHAIN_ID: u64 = 8453; // Base
 #[cfg(feature = "simulation-mode")]
 pub const DAO_CHAIN_ID: u64 = 31337; // Anvil / fakenet
 #[cfg(not(feature = "simulation-mode"))]
-pub const DAO_TIMELOCK_ADDRESS: &str = "0x322D23640D57f36aE058FCc43e02C2A307678166";
+pub const DAO_TIMELOCK_ADDRESS: &str = "0x0000000000c3442cbc1E194BBD6f74713816e51B";
 #[cfg(feature = "simulation-mode")]
 pub const DAO_TIMELOCK_ADDRESS: &str = "0xb7Dcc6Ce8efFD80Fc26f0FD1A5C226C3c53f6D8F";
 
 #[cfg(not(feature = "simulation-mode"))]
-pub const DAO_GOVERNOR_ADDRESS: &str = "0x45d8B75bb9A961E88486C470bcf8aa13E506Ec9B";
+pub const DAO_GOVERNOR_ADDRESS: &str = "0x000000000048395579c3C60f2F8Cb2DECa457550";
 #[cfg(feature = "simulation-mode")]
 pub const DAO_GOVERNOR_ADDRESS: &str = "0x45d8B75bb9A961E88486C470bcf8aa13E506Ec9B";
 
 #[cfg(not(feature = "simulation-mode"))]
-pub const DAO_VOTES_TOKEN_ADDRESS: &str = "0xec48905Bb1714bbf3B6f56E49a8FA2299Bfa55f5";
+pub const DAO_VOTES_TOKEN_ADDRESS: &str = "0x00000000004a50Daa1B759C47Ebf4239163aE5be";
 #[cfg(feature = "simulation-mode")]
 pub const DAO_VOTES_TOKEN_ADDRESS: &str = "0xec48905Bb1714bbf3B6f56E49a8FA2299Bfa55f5";
 
 // First block to start caching DAO events from (can be refined later)
 #[cfg(not(feature = "simulation-mode"))]
-pub const DAO_FIRST_BLOCK: u64 = 0;
+pub const DAO_FIRST_BLOCK: u64 = 8_900_000;
 #[cfg(feature = "simulation-mode")]
 pub const DAO_FIRST_BLOCK: u64 = 0;
 
