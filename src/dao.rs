@@ -39,7 +39,7 @@ pub const DAO_VOTES_TOKEN_ADDRESS: &str = "0xec48905Bb1714bbf3B6f56E49a8FA2299Bf
 
 // First block to start caching DAO events from (can be refined later)
 #[cfg(not(feature = "simulation-mode"))]
-pub const DAO_FIRST_BLOCK: u64 = 39_827_295;
+pub const DAO_FIRST_BLOCK: u64 = 40_000_000;
 #[cfg(feature = "simulation-mode")]
 pub const DAO_FIRST_BLOCK: u64 = 0;
 
