@@ -127,6 +127,12 @@ sol! {
             string description
         );
 
+        /// ProposalQueued event (includes eta).
+        event ProposalQueued(uint256 proposalId, uint256 eta);
+
+        /// ProposalCanceled event.
+        event ProposalCanceled(uint256 proposalId);
+
         /// Standard OZ VoteCast event layout.
         event VoteCast(
             address indexed voter,
@@ -450,6 +456,69 @@ impl DaoContracts {
         Ok(out)
     }
 
+    /// Fetch ProposalQueued events within a block range.
+    pub fn fetch_proposals_queued(
+        &self,
+        from_block: Option<BlockNumberOrTag>,
+        to_block: Option<BlockNumberOrTag>,
+    ) -> Result<Vec<ProposalQueuedEvent>, EthError> {
+        let topic0 = HyperwareGovernor::ProposalQueued::SIGNATURE_HASH;
+        let mut filter = EthFilter::new()
+            .address(self.governor)
+            .event_signature(B256::from(topic0));
+        if let Some(fb) = from_block {
+            filter = filter.from_block(fb);
+        }
+        if let Some(tb) = to_block {
+            filter = filter.to_block(tb);
+        }
+        let logs = self.provider.get_logs(&filter)?;
+        let mut out = Vec::new();
+        for log in logs {
+            if let Ok(decoded) = HyperwareGovernor::ProposalQueued::decode_log(&log.inner, true) {
+                if let Some(bn) = log.block_number {
+                    out.push(ProposalQueuedEvent {
+                        proposal_id: decoded.proposalId,
+                        eta: decoded.eta,
+                        block_number: bn,
+                    });
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Fetch ProposalCanceled events within a block range.
+    pub fn fetch_proposals_canceled(
+        &self,
+        from_block: Option<BlockNumberOrTag>,
+        to_block: Option<BlockNumberOrTag>,
+    ) -> Result<Vec<ProposalCanceledEvent>, EthError> {
+        let topic0 = HyperwareGovernor::ProposalCanceled::SIGNATURE_HASH;
+        let mut filter = EthFilter::new()
+            .address(self.governor)
+            .event_signature(B256::from(topic0));
+        if let Some(fb) = from_block {
+            filter = filter.from_block(fb);
+        }
+        if let Some(tb) = to_block {
+            filter = filter.to_block(tb);
+        }
+        let logs = self.provider.get_logs(&filter)?;
+        let mut out = Vec::new();
+        for log in logs {
+            if let Ok(decoded) = HyperwareGovernor::ProposalCanceled::decode_log(&log.inner, true) {
+                if let Some(bn) = log.block_number {
+                    out.push(ProposalCanceledEvent {
+                        proposal_id: decoded.proposalId,
+                        block_number: bn,
+                    });
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Fetch the timestamp for a block number.
     pub fn block_timestamp(&self, block_number: u64) -> Result<u64, EthError> {
         let block = self
@@ -663,6 +732,21 @@ pub struct VoteCastEvent {
 
 #[derive(Clone, Debug)]
 pub struct ProposalExecutedEvent {
+    pub proposal_id: U256,
+    pub block_number: u64,
+}
+
+/// Parsed ProposalQueued event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProposalQueuedEvent {
+    pub proposal_id: U256,
+    pub eta: U256,
+    pub block_number: u64,
+}
+
+/// Parsed ProposalCanceled event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProposalCanceledEvent {
     pub proposal_id: U256,
     pub block_number: u64,
 }
