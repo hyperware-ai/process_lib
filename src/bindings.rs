@@ -26,7 +26,7 @@ use std::str::FromStr;
 #[cfg(not(feature = "simulation-mode"))]
 pub const BINDINGS_ADDRESS: &'static str = "0x0000000000e8d224B902632757d5dbc51a451456";
 #[cfg(feature = "simulation-mode")]
-pub const BINDINGS_ADDRESS: &'static str = "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6";
+pub const BINDINGS_ADDRESS: &'static str = "0x326Aa6822847B97a8387445a497e01253aC6E82B";
 #[cfg(not(feature = "simulation-mode"))]
 pub const BINDINGS_CHAIN_ID: u64 = 8453; // base
 #[cfg(feature = "simulation-mode")]
